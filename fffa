@@ -1,0 +1,530 @@
+-- ============================================================
+-- JJS HELPER  |  Matcha LuaVM build
+-- INSERT to toggle menu  |  Click rows to toggle features
+-- Drag the title bar to move the window
+-- ============================================================
+
+local Players      = game:GetService("Players")
+local Workspace    = game:GetService("Workspace")
+local LocalPlayer  = Players.LocalPlayer
+local Camera       = Workspace.CurrentCamera
+local Mouse        = LocalPlayer:GetMouse()
+
+-- ============================================================
+-- CONFIG  (tweak these freely; keywords are case-insensitive substrings)
+-- ============================================================
+local Cfg = {
+    MenuKey          = 0x2D,  -- INSERT
+    PanicKey         = 0x23,  -- END  (kills the script)
+    LoopWait         = 0.03,  -- ~33 fps redraw / scan
+    QTEDoubleTap     = false, -- press key twice with 50ms gap (some QTEs need it)
+    MaxESPDistance   = 1200,
+}
+
+local Features = {
+    DefenseAttorneyQTE  = false,
+    NanamiAutoRatio     = false,
+    TodoAutoPerfectSwap = false,
+    CharaAutoCharaQTE   = false,
+    HiromiVoteTracker   = false,
+    ItemsESP            = false,
+    DummyESP            = false,
+    DomainHealthESP     = false,
+}
+
+-- Keyword tables — adjust as the game updates without touching the engine code.
+local QTEDefs = {
+    DefenseAttorneyQTE = {
+        match = {"defense attorney","guilty","not guilty","verdict"},
+        key   = 0x45, -- E
+    },
+    NanamiAutoRatio = {
+        match = {"ratio","7:3","overtime"},
+        key   = 0x45, -- E
+    },
+    TodoAutoPerfectSwap = {
+        match = {"boogie woogie","perfect swap","swap!","swap now"},
+        key   = 0x46, -- F
+    },
+    CharaAutoCharaQTE = {
+        match = {"chara","black flash","cleave","dismantle"},
+        key   = 0x45, -- E
+    },
+}
+
+local ESPDefs = {
+    ItemsESP = {
+        match = {"item","cursedtool","cursed tool","sukunafinger","finger","specialgrade"},
+        color = Color3.fromRGB(255, 200, 0),
+    },
+    DummyESP = {
+        match = {"dummy","trainingdummy","training dummy"},
+        color = Color3.fromRGB(120, 220, 255),
+    },
+    DomainHealthESP = {
+        match = {"domain","malevolent","unlimited","chimera","selfembodiment","horizon"},
+        color = Color3.fromRGB(255, 80, 220),
+    },
+}
+
+-- ============================================================
+-- STATE
+-- ============================================================
+local State = {
+    MenuOpen        = true,
+    MenuPos         = Vector2.new(40, 120),
+    MenuSize        = Vector2.new(260, 0), -- height auto-computes
+    Dragging        = false,
+    DragOffset      = Vector2.new(0,0),
+    LastMouseDown   = false,
+    LastMenuKey     = false,
+    LastPanicKey    = false,
+    LastQTEHash     = {}, -- per-feature dedupe so we don't spam keys
+    HiromiVotes     = { guilty = 0, notguilty = 0, lastSeenSig = "" },
+    Running         = true,
+}
+
+-- ============================================================
+-- UTIL
+-- ============================================================
+local function lower(s) return string.lower(tostring(s or "")) end
+
+local function contains_any(haystack, list)
+    local h = lower(haystack)
+    for _, n in ipairs(list) do
+        if string.find(h, n, 1, true) then return true end
+    end
+    return false
+end
+
+local function in_rect(px, py, x, y, w, h)
+    return px >= x and px <= x + w and py >= y and py <= y + h
+end
+
+local function safe_get_root(plr)
+    local c = plr and plr.Character
+    if not c then return nil end
+    return c:FindFirstChild("HumanoidRootPart") or (c.PrimaryPart)
+end
+
+local function distance_from_local(pos)
+    local root = safe_get_root(LocalPlayer)
+    if not root then return math.huge end
+    local d = root.Position - pos
+    return math.sqrt(d.X*d.X + d.Y*d.Y + d.Z*d.Z)
+end
+
+local function tap_key(vk)
+    keypress(vk)
+    task.wait(0.02)
+    keyrelease(vk)
+    if Cfg.QTEDoubleTap then
+        task.wait(0.05)
+        keypress(vk); task.wait(0.02); keyrelease(vk)
+    end
+end
+
+-- ============================================================
+-- DRAWING POOL
+-- ============================================================
+local D = {} -- holds named drawing objects
+
+local function new_draw(name, kind, base)
+    local o = Drawing.new(kind)
+    for k, v in pairs(base or {}) do o[k] = v end
+    o.Visible = false
+    D[name] = o
+    return o
+end
+
+-- Menu chrome
+new_draw("bg",     "Square", { Filled = true, Color = Color3.fromRGB(15,15,18),  Transparency = 0.92, ZIndex = 10 })
+new_draw("border", "Square", { Filled = false, Color = Color3.fromRGB(90,90,110), Thickness = 1,       ZIndex = 11 })
+new_draw("title",  "Square", { Filled = true, Color = Color3.fromRGB(35,35,45),  Transparency = 1,    ZIndex = 11 })
+new_draw("titletxt","Text",  { Text = "JJS  -  matcha", Size = 16, Color = Color3.fromRGB(255,255,255), Outline = true, Font = Drawing.Fonts.SystemBold, ZIndex = 12 })
+new_draw("hint",   "Text",   { Text = "[INSERT] toggle   [END] kill", Size = 12, Color = Color3.fromRGB(170,170,180), Outline = true, Font = Drawing.Fonts.System, ZIndex = 12 })
+new_draw("votes",  "Text",   { Text = "", Size = 13, Color = Color3.fromRGB(255,210,90), Outline = true, Font = Drawing.Fonts.SystemBold, ZIndex = 12 })
+
+-- One row per feature
+local FeatureOrder = {
+    "DefenseAttorneyQTE",
+    "NanamiAutoRatio",
+    "TodoAutoPerfectSwap",
+    "CharaAutoCharaQTE",
+    "HiromiVoteTracker",
+    "ItemsESP",
+    "DummyESP",
+    "DomainHealthESP",
+}
+
+local PrettyNames = {
+    DefenseAttorneyQTE  = "Defense Attorney QTE",
+    NanamiAutoRatio     = "Nanami Auto Ratio",
+    TodoAutoPerfectSwap = "Todo Auto Perfect Swap",
+    CharaAutoCharaQTE   = "Chara Auto Chara QTE",
+    HiromiVoteTracker   = "Hiromi Vote Tracker",
+    ItemsESP            = "Items ESP",
+    DummyESP            = "Dummy ESP",
+    DomainHealthESP     = "Domain Health ESP",
+}
+
+local Rows = {}
+for _, key in ipairs(FeatureOrder) do
+    Rows[key] = {
+        bg    = new_draw(key.."_bg",   "Square", { Filled = true,  Color = Color3.fromRGB(25,25,32), Transparency = 1, ZIndex = 11 }),
+        box   = new_draw(key.."_box",  "Square", { Filled = true,  Color = Color3.fromRGB(60,60,70), Transparency = 1, ZIndex = 12 }),
+        boxOn = new_draw(key.."_on",   "Square", { Filled = true,  Color = Color3.fromRGB(0,200,120), Transparency = 1, ZIndex = 13 }),
+        txt   = new_draw(key.."_txt",  "Text",   { Text = PrettyNames[key], Size = 13, Color = Color3.fromRGB(230,230,235), Outline = true, Font = Drawing.Fonts.System, ZIndex = 13 }),
+    }
+end
+
+-- ESP per-target pool (recycled each frame)
+local ESPPool = {}
+local function get_esp_slot(i)
+    local slot = ESPPool[i]
+    if slot then return slot end
+    slot = {
+        box  = new_draw("esp_box_"..i,  "Square", { Filled = false, Thickness = 1, ZIndex = 5 }),
+        name = new_draw("esp_name_"..i, "Text",   { Size = 12, Center = true, Outline = true, Font = Drawing.Fonts.SystemBold, ZIndex = 6 }),
+        hp   = new_draw("esp_hp_"..i,   "Text",   { Size = 12, Center = true, Outline = true, Font = Drawing.Fonts.System, ZIndex = 6 }),
+    }
+    ESPPool[i] = slot
+    return slot
+end
+
+local function hide_esp_from(idx)
+    for i = idx, #ESPPool do
+        local s = ESPPool[i]
+        if s then s.box.Visible=false; s.name.Visible=false; s.hp.Visible=false end
+    end
+end
+
+-- ============================================================
+-- MENU LAYOUT + INPUT
+-- ============================================================
+local ROW_H, TITLE_H, PAD = 22, 24, 6
+
+local function layout_menu()
+    local x, y = State.MenuPos.X, State.MenuPos.Y
+    local w     = State.MenuSize.X
+    local rows  = #FeatureOrder
+    local h     = TITLE_H + PAD + rows*ROW_H + PAD + 16 -- +hint line
+    State.MenuSize = Vector2.new(w, h)
+
+    D.bg.Position     = Vector2.new(x, y);            D.bg.Size     = Vector2.new(w, h)
+    D.border.Position = Vector2.new(x, y);            D.border.Size = Vector2.new(w, h)
+    D.title.Position  = Vector2.new(x, y);            D.title.Size  = Vector2.new(w, TITLE_H)
+    D.titletxt.Position = Vector2.new(x + 8, y + 4)
+    D.hint.Position   = Vector2.new(x + 8, y + h - 16)
+    D.votes.Position  = Vector2.new(x + 8, y + h - 32) -- above hint
+
+    for i, key in ipairs(FeatureOrder) do
+        local ry  = y + TITLE_H + PAD + (i-1)*ROW_H
+        local row = Rows[key]
+        row.bg.Position    = Vector2.new(x + 4, ry);            row.bg.Size = Vector2.new(w - 8, ROW_H - 2)
+        row.box.Position   = Vector2.new(x + 10, ry + 4);       row.box.Size = Vector2.new(14, 14)
+        row.boxOn.Position = Vector2.new(x + 13, ry + 7);       row.boxOn.Size = Vector2.new(8, 8)
+        row.txt.Position   = Vector2.new(x + 32, ry + 3)
+    end
+end
+
+local function set_menu_visible(v)
+    D.bg.Visible      = v
+    D.border.Visible  = v
+    D.title.Visible   = v
+    D.titletxt.Visible= v
+    D.hint.Visible    = v
+    D.votes.Visible   = v and Features.HiromiVoteTracker
+    for _, key in ipairs(FeatureOrder) do
+        local row = Rows[key]
+        row.bg.Visible    = v
+        row.box.Visible   = v
+        row.boxOn.Visible = v and Features[key]
+        row.txt.Visible   = v
+    end
+end
+
+local function row_rect(i)
+    local x, y = State.MenuPos.X, State.MenuPos.Y
+    local ry   = y + TITLE_H + PAD + (i-1)*ROW_H
+    return x + 4, ry, State.MenuSize.X - 8, ROW_H - 2
+end
+
+local function title_rect()
+    return State.MenuPos.X, State.MenuPos.Y, State.MenuSize.X, TITLE_H
+end
+
+local function handle_input()
+    -- Menu toggle (edge-trigger)
+    local k = iskeypressed(Cfg.MenuKey)
+    if k and not State.LastMenuKey then State.MenuOpen = not State.MenuOpen end
+    State.LastMenuKey = k
+
+    -- Panic
+    local p = iskeypressed(Cfg.PanicKey)
+    if p and not State.LastPanicKey then State.Running = false end
+    State.LastPanicKey = p
+
+    if not State.MenuOpen then State.Dragging = false; return end
+
+    local mx, my = Mouse.X, Mouse.Y
+    local down   = ismouse1pressed()
+    local just_pressed  = down and not State.LastMouseDown
+    local just_released = (not down) and State.LastMouseDown
+    State.LastMouseDown = down
+
+    -- Drag start / continue / stop
+    local tx, ty, tw, th = title_rect()
+    if just_pressed and in_rect(mx, my, tx, ty, tw, th) then
+        State.Dragging  = true
+        State.DragOffset = Vector2.new(mx - tx, my - ty)
+    end
+    if State.Dragging and down then
+        State.MenuPos = Vector2.new(mx - State.DragOffset.X, my - State.DragOffset.Y)
+    end
+    if just_released then State.Dragging = false end
+
+    -- Row clicks (only on press edge, ignore if dragging title)
+    if just_pressed and not in_rect(mx, my, tx, ty, tw, th) then
+        for i, key in ipairs(FeatureOrder) do
+            local rx, ry, rw, rh = row_rect(i)
+            if in_rect(mx, my, rx, ry, rw, rh) then
+                Features[key] = not Features[key]
+                break
+            end
+        end
+    end
+end
+
+-- ============================================================
+-- QTE / GUI SCANNER
+-- ============================================================
+local function iter_playergui()
+    local pg = LocalPlayer:FindFirstChild("PlayerGui")
+    if not pg then return {} end
+    return pg:GetDescendants()
+end
+
+local function visible_text_of(inst)
+    if not inst then return nil end
+    if inst:IsA("TextLabel") or inst:IsA("TextButton") then
+        -- Visibility check (best-effort; some games hide via parent ScreenGui)
+        local ok_text = inst.Text and #inst.Text > 0
+        if ok_text then return inst.Text end
+    end
+    return nil
+end
+
+local function scan_qtes()
+    local descendants = iter_playergui()
+    local hits = {}      -- featureKey -> aggregated text signature
+    for _, inst in ipairs(descendants) do
+        local txt = visible_text_of(inst)
+        if txt then
+            for featureKey, def in pairs(QTEDefs) do
+                if Features[featureKey] and contains_any(txt, def.match) then
+                    hits[featureKey] = (hits[featureKey] or "") .. "|" .. txt
+                end
+            end
+            -- Hiromi vote tracker: parse vote-related labels
+            if Features.HiromiVoteTracker then
+                local lt = lower(txt)
+                if string.find(lt, "guilty", 1, true) or string.find(lt, "not guilty", 1, true) or string.find(lt, "vote", 1, true) then
+                    State.HiromiVotes.lastSeenSig = State.HiromiVotes.lastSeenSig .. "|" .. txt
+                end
+            end
+        end
+    end
+
+    -- Fire each detected QTE once per appearance (dedupe by signature)
+    for featureKey, sig in pairs(hits) do
+        if State.LastQTEHash[featureKey] ~= sig then
+            State.LastQTEHash[featureKey] = sig
+            local def = QTEDefs[featureKey]
+            if isrbxactive() then
+                task.spawn(function() tap_key(def.key) end)
+            end
+        end
+    end
+    -- Clear hashes for features whose prompt vanished, so a future re-appearance fires again
+    for k, _ in pairs(State.LastQTEHash) do
+        if not hits[k] then State.LastQTEHash[k] = nil end
+    end
+end
+
+local function update_vote_counter_display()
+    if not Features.HiromiVoteTracker then
+        D.votes.Visible = false; return
+    end
+    -- Crude tally from accumulated signature
+    local sig = lower(State.HiromiVotes.lastSeenSig)
+    local g, ng = 0, 0
+    for _ in string.gmatch(sig, "not guilty") do ng = ng + 1 end
+    for _ in string.gmatch(sig, "guilty")     do g  = g  + 1 end
+    g = g - ng  -- "not guilty" double-counts "guilty"
+    if g < 0 then g = 0 end
+    State.HiromiVotes.guilty    = g
+    State.HiromiVotes.notguilty = ng
+    D.votes.Text = string.format("Hiromi Votes  G:%d  /  NG:%d", g, ng)
+    D.votes.Visible = State.MenuOpen
+end
+
+-- Reset vote scan signature every loop so it reflects current frame state, not lifetime
+local function reset_vote_sig() State.HiromiVotes.lastSeenSig = "" end
+
+-- ============================================================
+-- ESP
+-- ============================================================
+local function part_position(inst)
+    if inst:IsA("BasePart") then return inst.Position end
+    if inst:IsA("Model") then
+        local pp = inst.PrimaryPart or inst:FindFirstChildWhichIsA("BasePart")
+        if pp then return pp.Position end
+    end
+    return nil
+end
+
+local function part_size(inst)
+    if inst:IsA("BasePart") then return inst.Size end
+    if inst:IsA("Model") then
+        local pp = inst.PrimaryPart or inst:FindFirstChildWhichIsA("BasePart")
+        if pp then return pp.Size end
+    end
+    return Vector3.new(4,6,4)
+end
+
+local function humanoid_of(inst)
+    if inst.FindFirstChildWhichIsA then
+        local h = inst:FindFirstChildWhichIsA("Humanoid")
+        if h then return h end
+    end
+    return nil
+end
+
+local function project_box(pos3, size3)
+    -- 8 corners → bounding rect on screen
+    local hx, hy, hz = size3.X*0.5, size3.Y*0.5, size3.Z*0.5
+    local minX, minY, maxX, maxY = math.huge, math.huge, -math.huge, -math.huge
+    local any_on = false
+    local offsets = {
+        Vector3.new(-hx,-hy,-hz),Vector3.new( hx,-hy,-hz),
+        Vector3.new(-hx, hy,-hz),Vector3.new( hx, hy,-hz),
+        Vector3.new(-hx,-hy, hz),Vector3.new( hx,-hy, hz),
+        Vector3.new(-hx, hy, hz),Vector3.new( hx, hy, hz),
+    }
+    for _, off in ipairs(offsets) do
+        local sp, on = WorldToScreen(Vector3.new(pos3.X+off.X, pos3.Y+off.Y, pos3.Z+off.Z))
+        if sp then
+            if sp.X < minX then minX = sp.X end
+            if sp.Y < minY then minY = sp.Y end
+            if sp.X > maxX then maxX = sp.X end
+            if sp.Y > maxY then maxY = sp.Y end
+            if on then any_on = true end
+        end
+    end
+    if not any_on or minX == math.huge then return nil end
+    return minX, minY, maxX - minX, maxY - minY
+end
+
+local function classify(inst)
+    local name = inst.Name or ""
+    for featureKey, def in pairs(ESPDefs) do
+        if Features[featureKey] and contains_any(name, def.match) then
+            return featureKey, def
+        end
+    end
+    return nil
+end
+
+local function run_esp()
+    if not (Features.ItemsESP or Features.DummyESP or Features.DomainHealthESP) then
+        hide_esp_from(1); return
+    end
+
+    local idx = 0
+    local descendants = Workspace:GetDescendants()
+    for _, inst in ipairs(descendants) do
+        local featureKey, def = classify(inst)
+        if featureKey then
+            local pos = part_position(inst)
+            if pos then
+                local dist = distance_from_local(pos)
+                if dist <= Cfg.MaxESPDistance then
+                    local x, y, w, h = project_box(pos, part_size(inst))
+                    if x then
+                        idx = idx + 1
+                        local s = get_esp_slot(idx)
+                        s.box.Position  = Vector2.new(x, y)
+                        s.box.Size      = Vector2.new(w, h)
+                        s.box.Color     = def.color
+                        s.box.Visible   = true
+                        s.name.Position = Vector2.new(x + w*0.5, y - 14)
+                        s.name.Text     = string.format("%s  [%dm]", inst.Name, math.floor(dist))
+                        s.name.Color    = def.color
+                        s.name.Visible  = true
+
+                        if featureKey == "DomainHealthESP" then
+                            local hum = humanoid_of(inst)
+                            if hum then
+                                local hp, max = hum.Health or 0, hum.MaxHealth or 1
+                                s.hp.Position = Vector2.new(x + w*0.5, y + h + 2)
+                                s.hp.Text     = string.format("HP %d / %d", math.floor(hp), math.floor(max))
+                                s.hp.Color    = Color3.fromRGB(255,255,255)
+                                s.hp.Visible  = true
+                            else
+                                -- look for a Health-like attribute or ValueBase child
+                                local hv = inst:FindFirstChild("Health") or inst:FindFirstChild("DomainHealth")
+                                if hv and hv.Value then
+                                    s.hp.Position = Vector2.new(x + w*0.5, y + h + 2)
+                                    s.hp.Text     = string.format("HP %s", tostring(hv.Value))
+                                    s.hp.Color    = Color3.fromRGB(255,255,255)
+                                    s.hp.Visible  = true
+                                else
+                                    s.hp.Visible  = false
+                                end
+                            end
+                        else
+                            s.hp.Visible = false
+                        end
+                    end
+                end
+            end
+        end
+    end
+    hide_esp_from(idx + 1)
+end
+
+-- ============================================================
+-- MAIN LOOP
+-- ============================================================
+notify("JJS Helper loaded.  INSERT = menu  /  END = kill", "matcha", 4)
+
+task.spawn(function()
+    while State.Running do
+        local ok, err = pcall(function()
+            handle_input()
+            layout_menu()
+            set_menu_visible(State.MenuOpen)
+
+            -- QTE pipeline
+            local need_qte = Features.DefenseAttorneyQTE or Features.NanamiAutoRatio
+                          or Features.TodoAutoPerfectSwap or Features.CharaAutoCharaQTE
+                          or Features.HiromiVoteTracker
+            reset_vote_sig()
+            if need_qte then scan_qtes() end
+            update_vote_counter_display()
+
+            -- ESP pipeline
+            run_esp()
+        end)
+        if not ok then warn("[JJS] " .. tostring(err)) end
+        task.wait(Cfg.LoopWait)
+    end
+
+    -- Cleanup on END
+    for _, obj in pairs(D)      do pcall(function() obj:Remove() end) end
+    for _, s   in ipairs(ESPPool) do
+        pcall(function() s.box:Remove(); s.name:Remove(); s.hp:Remove() end)
+    end
+    notify("JJS Helper unloaded.", "matcha", 2)
+end)
