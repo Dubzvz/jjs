@@ -6,6 +6,10 @@
     Toggle Menu: F1
 ]]
 
+-- Environment Safety Check
+local getgenv = getgenv or function() return _G end
+local Instance = Instance or game:GetService("Instance")
+
 -- Services
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
@@ -73,7 +77,7 @@ end
 --------------------------------------------------------------
 -- cleanup old instance if re-executing
 pcall(function()
-    if getgenv and getgenv().__jjs_cleanup then
+    if getgenv().__jjs_cleanup then
         getgenv().__jjs_cleanup()
     end
 end)
@@ -736,7 +740,7 @@ local function cleanup()
 end
 
 pcall(function()
-    if getgenv then
+    if getgenv() then
         getgenv().__jjs_cleanup = cleanup
     end
 end)
