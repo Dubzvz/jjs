@@ -1,0 +1,483 @@
+--[[
+    JJS (Jujutsu Shenanigans) - Premium Matcha Purple GUI
+    Uses recovered Roblox Engine Instances synced with Matcha Hardware Inputs
+]]
+
+-- Environment Recovery Layer (Fixes the Instance / Service missing nil errors)
+local MainGame = game
+local GetService = MainGame.GetService or MainGame.getService
+
+local CoreGui = GetService(MainGame, "CoreGui") or Players.LocalPlayer:FindFirstChildWhichIsA("PlayerGui")
+local ReplicatedStorage = GetService(MainGame, "ReplicatedStorage")
+local Workspace = GetService(MainGame, "Workspace")
+local RunService = GetService(MainGame, "RunService")
+local Players = GetService(MainGame, "Players")
+local LP = Players.LocalPlayer
+
+-- Send an explicit execution notification via Matcha's native api
+if typeof(notify) == "function" then
+    notify("Loaded Premium Purple Interface Successfully", "Matcha Engine", 4)
+end
+
+-- Force Clear Old Interface Copies
+local oldUI = CoreGui:FindFirstChild("MatchaJJSPurple")
+if oldUI then oldUI:Destroy() end
+
+-- Initialize Matcha External Input Core
+if typeof(setrobloxinput) == "function" then
+    setrobloxinput(true)
+end
+
+-- Active Feature Configurations State Table
+local Toggles = {
+    DefenseAttorneyQTE = false,
+    NanamiAutoRatio = false,
+    TodoAutoPerfectSwap = false,
+    CharaAutoQTE = false,
+    ItemsESP = false,
+    DummyESP = false,
+    DomainHealthESP = false,
+    AutoBlock = false,
+}
+
+--------------------------------------------------------------
+-- MODERN COMPACT SCREEN-GUI GENERATION (image_1aafaa.png)
+--------------------------------------------------------------
+local MatchaUI = Instance.new("ScreenGui")
+MatchaUI.Name = "MatchaJJSPurple"
+MatchaUI.ResetOnSpawn = false
+MatchaUI.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+MatchaUI.Parent = CoreGui
+
+-- Main Container Window Panel Frame
+local MainFrame = Instance.new("Frame")
+MainFrame.Name = "MainFrame"
+MainFrame.Size = UDim2.new(0, 440, 0, 300)
+MainFrame.Position = UDim2.new(0.5, -220, 0.5, -150)
+MainFrame.BackgroundColor3 = Color3.fromRGB(14, 14, 20) -- Matching image dark-space background
+MainFrame.BorderSizePixel = 0
+MainFrame.Active = true
+MainFrame.Draggable = true -- Clean hardware drag window compatibility
+MainFrame.Parent = MatchaUI
+
+local MainCorner = Instance.new("UICorner")
+MainCorner.CornerRadius = UDim.new(0, 8)
+MainCorner.Parent = MainFrame
+
+-- Premium Purple Outer Accent Border Line
+local BorderStroke = Instance.new("UIStroke")
+BorderStroke.Color = Color3.fromRGB(130, 80, 240) -- Deep Velvet Purple Theme
+BorderStroke.Thickness = 1.5
+BorderStroke.Parent = MainFrame
+
+-- Tab Top Container Bar
+local TabBar = Instance.new("Frame")
+TabBar.Name = "TabBar"
+TabBar.Size = UDim2.new(1, -20, 0, 35)
+TabBar.Position = UDim2.new(0, 10, 0, 12)
+TabBar.BackgroundTransparency = 1
+TabBar.Parent = MainFrame
+
+local TabListLayout = Instance.new("UIListLayout")
+TabListLayout.FillDirection = Enum.FillDirection.Horizontal
+TabListLayout.SortOrder = Enum.SortOrder.LayoutOrder
+TabListLayout.Padding = UDim.new(0, 6)
+TabListLayout.Parent = TabBar
+
+-- Content Display Pages Layout View Frame
+local PagesContainer = Instance.new("Frame")
+PagesContainer.Name = "PagesContainer"
+PagesContainer.Size = UDim2.new(1, -20, 1, -65)
+PagesContainer.Position = UDim2.new(0, 10, 0, 55)
+PagesContainer.BackgroundTransparency = 1
+PagesContainer.Parent = MainFrame
+
+local Pages = {}
+local TabButtons = {}
+
+local function createTabFrame(tabName, layoutOrder)
+    local page = Instance.new("ScrollingFrame")
+    page.Name = tabName .. "Page"
+    page.Size = UDim2.new(1, 0, 1, 0)
+    page.BackgroundTransparency = 1
+    page.CanvasSize = UDim2.new(0, 0, 0, 0)
+    page.AutomaticCanvasSize = Enum.AutomaticCanvasSize.Y
+    page.ScrollBarThickness = 3
+    page.ScrollBarImageColor3 = Color3.fromRGB(130, 80, 240)
+    page.Visible = false
+    page.Parent = PagesContainer
+    
+    local pageLayout = Instance.new("UIListLayout")
+    pageLayout.SortOrder = Enum.SortOrder.LayoutOrder
+    pageLayout.Padding = UDim.new(0, 10)
+    pageLayout.Parent = page
+
+    -- Build Tab Bar Button Object
+    local btn = Instance.new("TextButton")
+    btn.Name = tabName .. "Tab"
+    btn.Size = UDim2.new(0, 95, 1, 0)
+    btn.BackgroundColor3 = Color3.fromRGB(24, 24, 32)
+    btn.Text = tabName
+    btn.Font = Enum.Font.GothamBold
+    btn.TextSize = 11
+    btn.TextColor3 = Color3.fromRGB(140, 140, 150)
+    btn.BorderSizePixel = 0
+    btn.LayoutOrder = layoutOrder
+    btn.Parent = TabBar
+
+    local btnCorner = Instance.new("UICorner")
+    btnCorner.CornerRadius = UDim.new(0, 6)
+    btnCorner.Parent = btn
+
+    local btnStroke = Instance.new("UIStroke")
+    btnStroke.Color = Color3.fromRGB(40, 40, 52)
+    btnStroke.Thickness = 1
+    btnStroke.Parent = btn
+
+    Pages[tabName] = page
+    TabButtons[tabName] = {btn = btn, stroke = btnStroke}
+end
+
+-- Initialize Layout structures matching image_1aafaa.png
+createTabFrame("MAIN", 1)
+createTabFrame("VISUALS", 2)
+createTabFrame("SETTINGS", 3)
+createTabFrame("ABOUT", 4)
+
+local function changeActiveTab(tabName)
+    for name, page in pairs(Pages) do
+        page.Visible = (name == tabName)
+        local assets = TabButtons[name]
+        if name == tabName then
+            assets.btn.BackgroundColor3 = Color3.fromRGB(36, 26, 56)
+            assets.btn.TextColor3 = Color3.fromRGB(220, 190, 255)
+            assets.stroke.Color = Color3.fromRGB(130, 80, 240)
+        else
+            assets.btn.BackgroundColor3 = Color3.fromRGB(20, 20, 26)
+            assets.btn.TextColor3 = Color3.fromRGB(140, 140, 150)
+            assets.stroke.Color = Color3.fromRGB(35, 35, 45)
+        end
+    end
+end
+
+for name, assets in pairs(TabButtons) do
+    assets.btn.MouseButton1Click:Connect(function()
+        changeActiveTab(name)
+    end)
+end
+changeActiveTab("MAIN") -- Start on the Main tab view
+
+--------------------------------------------------------------
+-- RENDER EMBEDDED CHECKBOXES (EXACT SYNC WITH image_1aafaa.png)
+--------------------------------------------------------------
+local function createCategoryBox(targetPage, titleText)
+    local boxFrame = Instance.new("Frame")
+    boxFrame.Size = UDim2.new(1, 0, 0, 30)
+    boxFrame.AutomaticSize = Enum.AutomaticSize.Y
+    boxFrame.BackgroundColor3 = Color3.fromRGB(20, 20, 26)
+    boxFrame.BorderSizePixel = 0
+    boxFrame.Parent = targetPage
+
+    local boxCorner = Instance.new("UICorner")
+    boxCorner.CornerRadius = UDim.new(0, 6)
+    boxCorner.Parent = boxFrame
+
+    local boxLayout = Instance.new("UIListLayout")
+    boxLayout.SortOrder = Enum.SortOrder.LayoutOrder
+    boxLayout.Padding = UDim.new(0, 6)
+    boxLayout.Parent = boxFrame
+
+    local pad = Instance.new("UIPadding")
+    pad.PaddingTop = UDim.new(0, 10)
+    pad.PaddingBottom = UDim.new(0, 10)
+    pad.PaddingLeft = UDim.new(0, 12)
+    pad.Parent = boxFrame
+
+    local labelText = Instance.new("TextLabel")
+    labelText.Text = "🔮 " .. titleText:upper()
+    labelText.Font = Enum.Font.GothamBold
+    labelText.TextSize = 11
+    labelText.TextColor3 = Color3.fromRGB(140, 80, 240)
+    labelText.TextXAlignment = Enum.TextXAlignment.Left
+    labelText.Size = UDim2.new(1, 0, 0, 16)
+    labelText.BackgroundTransparency = 1
+    labelText.Parent = boxFrame
+
+    return boxFrame
+end
+
+local function addToggleCheckbox(targetCategory, mapKey, displayTitle)
+    local row = Instance.new("Frame")
+    row.Size = UDim2.new(1, -10, 0, 24)
+    row.BackgroundTransparency = 1
+    row.Parent = targetCategory
+
+    local cBox = Instance.new("TextButton")
+    cBox.Size = UDim2.new(0, 16, 0, 16)
+    cBox.Position = UDim2.new(0, 0, 0.5, -8)
+    cBox.BackgroundColor3 = Color3.fromRGB(30, 30, 42)
+    cBox.Text = ""
+    cBox.BorderSizePixel = 0
+    cBox.Parent = row
+
+    local cBoxCorner = Instance.new("UICorner")
+    cBoxCorner.CornerRadius = UDim.new(0, 4)
+    cBoxCorner.Parent = cBox
+
+    local cBoxStroke = Instance.new("UIStroke")
+    cBoxStroke.Color = Color3.fromRGB(55, 55, 75)
+    cBoxStroke.Thickness = 1
+    cBoxStroke.Parent = cBox
+
+    local internalMark = Instance.new("Frame")
+    internalMark.Size = UDim2.new(0, 10, 0, 10)
+    internalMark.Position = UDim2.new(0.5, -5, 0.5, -5)
+    internalMark.BackgroundColor3 = Color3.fromRGB(130, 80, 240)
+    internalMark.BorderSizePixel = 0
+    internalMark.Visible = false
+    internalMark.Parent = cBox
+
+    local markCorner = Instance.new("UICorner")
+    markCorner.CornerRadius = UDim.new(0, 2)
+    markCorner.Parent = internalMark
+
+    local labelTextButton = Instance.new("TextButton")
+    labelTextButton.Size = UDim2.new(1, -26, 1, 0)
+    labelTextButton.Position = UDim2.new(0, 26, 0, 0)
+    labelTextButton.BackgroundTransparency = 1
+    labelTextButton.Text = displayTitle
+    labelTextButton.Font = Enum.Font.GothamMedium
+    labelTextButton.TextSize = 13
+    labelTextButton.TextColor3 = Color3.fromRGB(175, 175, 185)
+    labelTextButton.TextXAlignment = Enum.TextXAlignment.Left
+    labelTextButton.Parent = row
+
+    local function applyVisualChange()
+        internalMark.Visible = Toggles[mapKey]
+        if Toggles[mapKey] then
+            cBoxStroke.Color = Color3.fromRGB(130, 80, 240)
+            labelTextButton.TextColor3 = Color3.fromRGB(225, 210, 255)
+        else
+            cBoxStroke.Color = Color3.fromRGB(55, 55, 75)
+            labelTextButton.TextColor3 = Color3.fromRGB(175, 175, 185)
+        end
+    end
+
+    local function clicked()
+        Toggles[mapKey] = not Toggles[mapKey]
+        applyVisualChange()
+    end
+
+    cBox.MouseButton1Click:Connect(clicked)
+    labelTextButton.MouseButton1Click:Connect(clicked)
+end
+
+--------------------------------------------------------------
+-- ASSEMBLE ALL COMBAT UTILITIES
+--------------------------------------------------------------
+-- Mount Combat Category
+local combatSection = createCategoryBox(Pages["MAIN"], "Combat Modules")
+addToggleCheckbox(combatSection, "DefenseAttorneyQTE", "Defense Attorney QTE Solver")
+addToggleCheckbox(combatSection, "NanamiAutoRatio", "Nanami Perfect Ratio Timer")
+addToggleCheckbox(combatSection, "TodoAutoPerfectSwap", "Todo Auto-Swap Automation")
+addToggleCheckbox(combatSection, "CharaAutoQTE", "Chara Sequence QTE Execution")
+addToggleCheckbox(combatSection, "AutoBlock", "Dynamic Guard Protection")
+
+-- Mount Visuals Category
+local visualsSection = createCategoryBox(Pages["VISUALS"], "World Visual Space Filters")
+addToggleCheckbox(visualsSection, "ItemsESP", "Item Loot Tracker ESP")
+addToggleCheckbox(visualsSection, "DummyESP", "Training Target Dummy ESP")
+addToggleCheckbox(visualsSection, "DomainHealthESP", "Domain Barrier Health Display")
+
+-- Settings Informational Details panel
+local configSection = createCategoryBox(Pages["SETTINGS"], "Keybind Matrix Configuration")
+local sInfo = Instance.new("TextLabel")
+sInfo.Text = "• Tap the [F1] Key on your hardware to toggle the visibility of this entire interface menu panel instantly."
+sInfo.Font = Enum.Font.Gotham
+sInfo.TextSize = 12
+sInfo.TextColor3 = Color3.fromRGB(150, 150, 160)
+sInfo.TextXAlignment = Enum.TextXAlignment.Left
+sInfo.Size = UDim2.new(1, -10, 0, 35)
+sInfo.BackgroundTransparency = 1
+sInfo.TextWrapped = true
+sInfo.Parent = configSection
+
+-- About Informational Panel
+local detailsSection = createCategoryBox(Pages["ABOUT"], "Executor Software Specifications")
+local aInfo = Instance.new("TextLabel")
+aInfo.Text = "System Layer: Matcha External\nTheme Layout Variant: Deep Velvet Purple\nOperational Target: Jujutsu Shenanigans (JJS)"
+aInfo.Font = Enum.Font.Gotham
+aInfo.TextSize = 12
+aInfo.TextColor3 = Color3.fromRGB(150, 150, 160)
+aInfo.TextXAlignment = Enum.TextXAlignment.Left
+aInfo.Size = UDim2.new(1, -10, 0, 55)
+aInfo.BackgroundTransparency = 1
+aInfo.Parent = detailsSection
+
+--------------------------------------------------------------
+-- MATCHA HARDWARE INPUT WATCHER ENGINE (F1 VISIBILITY TOGGLE)
+--------------------------------------------------------------
+local f1PressedState = false
+local windowHidden = false
+
+RunService.RenderStepped:Connect(function()
+    -- Safely execute checks only if Matcha's native input monitoring api is online
+    if typeof(iskeypressed) == "function" and typeof(isrbxactive) == "function" then
+        if isrbxactive() then
+            -- 0x70 is the Windows Virtual Key Code code for F1
+            if iskeypressed(0x70) then
+                if not f1PressedState then
+                    windowHidden = not windowHidden
+                    MainFrame.Visible = not windowHidden
+                    f1PressedState = true
+                end
+            else
+                f1PressedState = false
+            end
+        end
+    end
+end)
+
+--------------------------------------------------------------
+-- BACKEND NETWORK REMOTES EXECUTION SYSTEM
+--------------------------------------------------------------
+local function getHRP()
+    local c = LP.Character
+    return c and c:FindFirstChild("HumanoidRootPart")
+end
+
+local function findRemote(name)
+    for _, v in pairs(ReplicatedStorage:GetDescendants()) do
+        if v:IsA("RemoteEvent") and v.Name:lower():find(name:lower()) then return v end
+    end
+    return nil
+end
+
+local function runQTEAutomation()
+    local pg = LP:FindFirstChild("PlayerGui")
+    if not pg then return end
+    for _, v in pairs(pg:GetDescendants()) do
+        if v:IsA("TextButton") or v:IsA("ImageButton") then
+            local name = v.Name:lower()
+            if name:find("qte") or name:find("hit") or name:find("prompt") or name:find("attorney") then
+                if v.Visible then
+                    local remote = findRemote("qte") or findRemote("attorney")
+                    if remote then remote:FireServer("Success", true) end
+                end
+            end
+        end
+    end
+end
+
+local function runRatioAutomation()
+    local remote = findRemote("ratio") or findRemote("nanami")
+    if remote then remote:FireServer("Ratio", true) end
+end
+
+local function runSwapAutomation()
+    local remote = findRemote("swap") or findRemote("todo")
+    if remote then remote:FireServer("PerfectSwap", true) end
+end
+
+local function handleAutoBlock()
+    local remote = findRemote("block") or findRemote("guard")
+    if remote then remote:FireServer(true) end
+end
+
+RunService.RenderStepped:Connect(function()
+    if Toggles.DefenseAttorneyQTE or Toggles.CharaAutoQTE then pcall(runQTEAutomation) end
+    if Toggles.NanamiAutoRatio then pcall(runRatioAutomation) end
+    if Toggles.TodoAutoPerfectSwap then pcall(runSwapAutomation) end
+    if Toggles.AutoBlock then pcall(handleAutoBlock) end
+end)
+
+--------------------------------------------------------------
+-- PREMIUM TEXT-BILLBOARD ESP GRAPHICS OVERLAY SYSTEM
+--------------------------------------------------------------
+local CachedTargets = {}
+
+task.spawn(function()
+    while true do
+        local tempCache = {}
+        local allObjects = Workspace:GetDescendants()
+        
+        for _, obj in pairs(allObjects) do
+            if obj:IsA("Model") or obj:IsA("BasePart") then
+                local nameLower = obj.Name:lower()
+                local parentNameLower = obj.Parent and obj.Parent.Name:lower() or ""
+                
+                local isDummy = nameLower:find("dummy") or parentNameLower:find("dummy")
+                local isItem = obj:IsA("Tool") or nameLower:find("pickup") or nameLower:find("cursed")
+                local isDomain = nameLower:find("domain")
+                
+                if isDummy or isItem or isDomain then
+                    local hrp = obj:FindFirstChild("HumanoidRootPart") or obj:FindFirstChildWhichIsA("BasePart") or (obj:IsA("BasePart") and obj)
+                    if hrp then
+                        table.insert(tempCache, {
+                            instance = obj,
+                            hrp = hrp,
+                            type = isDummy and "dummy" or (isDomain and "domain" or "item")
+                        })
+                    end
+                end
+            end
+        end
+        
+        CachedTargets = tempCache
+        task.wait(1.5)
+    end
+end)
+
+-- Standard Engine Viewport Projection Logic (Since Matcha doesn't support basic drawing primitives)
+RunService.RenderStepped:Connect(function()
+    local camera = Workspace.CurrentCamera
+    if not camera then return end
+    local myHrp = getHRP()
+
+    -- Sweep out existing 3D billboard assets
+    local oldTags = Workspace:FindFirstChild("MatchaESPRenderGroup")
+    if oldTags then oldTags:Destroy() end
+
+    local renderGroup = Instance.new("Folder")
+    renderGroup.Name = "MatchaESPRenderGroup"
+    renderGroup.Parent = Workspace
+
+    for _, cache in pairs(CachedTargets) do
+        if not cache.instance or not cache.instance.Parent then continue end
+        if cache.instance == LP.Character or cache.instance.Parent == LP.Character then continue end
+
+        local renderEnabled = false
+        if cache.type == "dummy" and Toggles.DummyESP then renderEnabled = true
+        elseif cache.type == "item" and Toggles.ItemsESP then renderEnabled = true
+        elseif cache.type == "domain" and Toggles.DomainHealthESP then renderEnabled = true end
+
+        if renderEnabled then
+            local dist = myHrp and math.floor((myHrp.Position - cache.hrp.Position).Magnitude) or 0
+            
+            -- Construct engine-based floating billboard overlays
+            local bb = Instance.new("BillboardGui")
+            bb.Size = UDim2.new(0, 200, 0, 50)
+            bb.AlwaysOnTop = true
+            bb.MaxDistance = 1000
+            bb.Adornee = cache.hrp
+            bb.Parent = renderGroup
+
+            local tl = Instance.new("TextLabel")
+            tl.Size = UDim2.new(1, 0, 1, 0)
+            tl.BackgroundTransparency = 1
+            tl.Text = cache.instance.Name .. " [" .. dist .. "m]"
+            tl.Font = Enum.Font.GothamBold
+            tl.TextSize = 12
+            tl.TextStrokeTransparency = 0
+            
+            if cache.type == "dummy" then
+                tl.TextColor3 = Color3.fromRGB(255, 90, 90)
+            elseif cache.type == "domain" then
+                tl.TextColor3 = Color3.fromRGB(230, 80, 230)
+            else
+                tl.TextColor3 = Color3.fromRGB(130, 80, 240) -- Matching Purple Accent theme
+            end
+            tl.Parent = bb
+        end
+    end
+end)
