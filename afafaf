@@ -1,0 +1,485 @@
+--[[
+    JJS (Jujutsu Shenanigans) - Premium Tabbed Purple GUI
+    Fully Clickable Mouse Interface with Checkboxes and Functional Tabs
+]]
+
+-- Clear any existing UI copies
+local oldUI = game:GetService("CoreGui"):FindFirstChild("JJSUIPanel") or game:GetService("Players").LocalPlayer:FindFirstChildWhichIsA("PlayerGui"):FindFirstChild("JJSUIPanel")
+if oldUI then oldUI:Destroy() end
+
+-- Get secure UI storage parent
+local UIParent = nil
+local success, coregui = pcall(function() return game:GetService("CoreGui") end)
+if success and coregui then
+    UIParent = coregui
+else
+    UIParent = game:GetService("Players").LocalPlayer:WaitForChild("PlayerGui")
+end
+
+-- ScreenGui Container
+local JJSUIPanel = Instance.new("ScreenGui")
+JJSUIPanel.Name = "JJSUIPanel"
+JJSUIPanel.ResetOnSpawn = false
+JJSUIPanel.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+JJSUIPanel.Parent = UIParent
+
+-- Automation States
+local Toggles = {
+    DefenseAttorneyQTE = false,
+    NanamiAutoRatio = false,
+    TodoAutoPerfectSwap = false,
+    CharaAutoQTE = false,
+    HiromiVoteTracker = false,
+    ItemsESP = false,
+    DummyESP = false,
+    DomainHealthESP = false,
+    AutoBlock = false,
+}
+
+local ActiveESP = {}
+local CachedTargets = {}
+
+--------------------------------------------------------------
+-- MAIN WINDOW & WINDOW CONTROLS (DRAGGABLE)
+--------------------------------------------------------------
+local MainFrame = Instance.new("Frame")
+MainFrame.Name = "MainFrame"
+MainFrame.Size = UDim2.new(0, 480, 0, 320)
+MainFrame.Position = UDim2.new(0.5, -240, 0.5, -160)
+MainFrame.BackgroundColor3 = Color3.fromRGB(16, 16, 24)
+MainFrame.BorderSizePixel = 0
+MainFrame.Active = true
+MainFrame.Draggable = true -- Built-in engine drag compatibility
+MainFrame.Parent = JJSUIPanel
+
+local MainCorner = Instance.new("UICorner")
+MainCorner.CornerRadius = UDim.new(0, 8)
+MainCorner.Parent = MainFrame
+
+local PremiumStroke = Instance.new("UIStroke")
+PremiumStroke.Color = Color3.fromRGB(130, 70, 220) -- Sleek Purple Border
+PremiumStroke.Thickness = 1.5
+PremiumStroke.Parent = MainFrame
+
+--------------------------------------------------------------
+-- NAVIGATION TABS SYSTEM
+--------------------------------------------------------------
+local TabBar = Instance.new("Frame")
+TabBar.Name = "TabBar"
+TabBar.Size = UDim2.new(1, -20, 0, 35)
+TabBar.Position = UDim2.new(0, 10, 0, 10)
+TabBar.BackgroundTransparency = 1
+TabBar.Parent = MainFrame
+
+local TabListLayout = Instance.new("UIListLayout")
+TabListLayout.FillDirection = Enum.FillDirection.Horizontal
+TabListLayout.SortOrder = Enum.SortOrder.LayoutOrder
+TabListLayout.Padding = UDim.new(0, 8)
+TabListLayout.Parent = TabBar
+
+local PagesContainer = Instance.new("Frame")
+PagesContainer.Name = "PagesContainer"
+PagesContainer.Size = UDim2.new(1, -20, 1, -65)
+PagesContainer.Position = UDim2.new(0, 10, 0, 55)
+PagesContainer.BackgroundTransparency = 1
+PagesContainer.Parent = MainFrame
+
+local Pages = {}
+local TabButtons = {}
+local currentTab = ""
+
+local function createTab(tabName, layoutOrder)
+    -- Page view container
+    local page = Instance.new("ScrollingFrame")
+    page.Name = tabName .. "Page"
+    page.Size = UDim2.new(1, 0, 1, 0)
+    page.BackgroundTransparency = 1
+    page.CanvasSize = UDim2.new(0, 0, 0, 0)
+    page.AutomaticCanvasSize = Enum.AutomaticCanvasSize.Y
+    page.ScrollBarThickness = 4
+    page.ScrollBarImageColor3 = Color3.fromRGB(130, 70, 220)
+    page.Visible = false
+    page.Parent = PagesContainer
+    
+    local pagePadding = Instance.new("UIPadding")
+    pagePadding.PaddingTop = UDim.new(0, 5)
+    pagePadding.PaddingLeft = UDim.new(0, 5)
+    pagePadding.Parent = page
+
+    local pageLayout = Instance.new("UIListLayout")
+    pageLayout.SortOrder = Enum.SortOrder.LayoutOrder
+    pageLayout.Padding = UDim.new(0, 10)
+    pageLayout.Parent = page
+
+    -- Navigation bar button
+    local btn = Instance.new("TextButton")
+    btn.Name = tabName .. "Tab"
+    btn.Size = UDim2.new(0, 100, 1, 0)
+    btn.BackgroundColor3 = Color3.fromRGB(28, 28, 38)
+    btn.Text = tabName
+    btn.Font = Enum.Font.GothamBold
+    btn.TextSize = 12
+    btn.TextColor3 = Color3.fromRGB(160, 160, 170)
+    btn.BorderSizePixel = 0
+    btn.LayoutOrder = layoutOrder
+    btn.Parent = TabBar
+
+    local btnCorner = Instance.new("UICorner")
+    btnCorner.CornerRadius = UDim.new(0, 6)
+    btnCorner.Parent = btn
+
+    local btnStroke = Instance.new("UIStroke")
+    btnStroke.Color = Color3.fromRGB(45, 45, 60)
+    btnStroke.Thickness = 1
+    btnStroke.Parent = btn
+
+    Pages[tabName] = page
+    TabButtons[tabName] = {btn = btn, stroke = btnStroke}
+end
+
+createTab("MAIN", 1)
+createTab("VISUALS", 2)
+createTab("SETTINGS", 3)
+createTab("ABOUT", 4)
+
+local function switchTab(tabName)
+    currentTab = tabName
+    for name, page in pairs(Pages) do
+        page.Visible = (name == tabName)
+        local tabAssets = TabButtons[name]
+        if name == tabName then
+            tabAssets.btn.BackgroundColor3 = Color3.fromRGB(40, 30, 60)
+            tabAssets.btn.TextColor3 = Color3.fromRGB(220, 180, 255)
+            tabAssets.stroke.Color = Color3.fromRGB(130, 70, 220)
+        else
+            tabAssets.btn.BackgroundColor3 = Color3.fromRGB(24, 24, 34)
+            tabAssets.btn.TextColor3 = Color3.fromRGB(150, 150, 160)
+            tabAssets.stroke.Color = Color3.fromRGB(40, 40, 50)
+        end
+    end
+end
+
+for name, assets in pairs(TabButtons) do
+    assets.btn.MouseButton1Click:Connect(function()
+        switchTab(name)
+    end)
+end
+switchTab("MAIN") -- Default startup tab
+
+--------------------------------------------------------------
+-- SECTION AND CHECKBOX BUILDER GRAPHICS
+--------------------------------------------------------------
+local function createSection(parentPage, sectionTitle)
+    local secFrame = Instance.new("Frame")
+    secFrame.Size = UDim2.new(1, -10, 0, 30)
+    secFrame.AutomaticSize = Enum.AutomaticSize.Y
+    secFrame.BackgroundColor3 = Color3.fromRGB(22, 22, 30)
+    secFrame.BorderSizePixel = 0
+    secFrame.Parent = parentPage
+
+    local secCorner = Instance.new("UICorner")
+    secCorner.CornerRadius = UDim.new(0, 6)
+    secCorner.Parent = secFrame
+
+    local secStroke = Instance.new("UIStroke")
+    secStroke.Color = Color3.fromRGB(35, 35, 48)
+    secStroke.Thickness = 1
+    secStroke.Parent = secFrame
+
+    local secLayout = Instance.new("UIListLayout")
+    secLayout.SortOrder = Enum.SortOrder.LayoutOrder
+    secLayout.Padding = UDim.new(0, 8)
+    secLayout.Parent = secFrame
+
+    local padding = Instance.new("UIPadding")
+    padding.PaddingTop = UDim.new(0, 10)
+    padding.PaddingBottom = UDim.new(0, 10)
+    padding.PaddingLeft = UDim.new(0, 12)
+    padding.Parent = secFrame
+
+    local titleLabel = Instance.new("TextLabel")
+    titleLabel.Text = "■ " .. sectionTitle:upper()
+    titleLabel.Font = Enum.Font.GothamBold
+    titleLabel.TextSize = 11
+    titleLabel.TextColor3 = Color3.fromRGB(150, 100, 230)
+    titleLabel.TextXAlignment = Enum.TextXAlignment.Left
+    titleLabel.Size = UDim2.new(1, 0, 0, 15)
+    titleLabel.BackgroundTransparency = 1
+    titleLabel.Parent = secFrame
+
+    return secFrame
+end
+
+local function createCheckbox(parentSection, toggleKey, labelText)
+    local container = Instance.new("Frame")
+    container.Size = UDim2.new(1, -10, 0, 24)
+    container.BackgroundTransparency = 1
+    container.Parent = parentSection
+
+    local boxButton = Instance.new("TextButton")
+    boxButton.Size = UDim2.new(0, 16, 0, 16)
+    boxButton.Position = UDim2.new(0, 0, 0.5, -8)
+    boxButton.BackgroundColor3 = Color3.fromRGB(32, 32, 44)
+    boxButton.Text = ""
+    boxButton.BorderSizePixel = 0
+    boxButton.Parent = container
+
+    local boxCorner = Instance.new("UICorner")
+    boxCorner.CornerRadius = UDim.new(0, 4)
+    boxCorner.Parent = boxButton
+
+    local boxStroke = Instance.new("UIStroke")
+    boxStroke.Color = Color3.fromRGB(60, 60, 80)
+    boxStroke.Thickness = 1
+    boxStroke.Parent = boxButton
+
+    local checkFill = Instance.new("Frame")
+    checkFill.Size = UDim2.new(0, 10, 0, 10)
+    checkFill.Position = UDim2.new(0.5, -5, 0.5, -5)
+    checkFill.BackgroundColor3 = Color3.fromRGB(140, 80, 240)
+    checkFill.BorderSizePixel = 0
+    checkFill.Visible = false
+    checkFill.Parent = boxButton
+
+    local fillCorner = Instance.new("UICorner")
+    fillCorner.CornerRadius = UDim.new(0, 2)
+    fillCorner.Parent = checkFill
+
+    local label = Instance.new("TextButton")
+    label.Size = UDim2.new(1, -26, 1, 0)
+    label.Position = UDim2.new(0, 26, 0, 0)
+    label.BackgroundTransparency = 1
+    label.Text = labelText
+    label.Font = Enum.Font.GothamMedium
+    label.TextSize = 13
+    label.TextColor3 = Color3.fromRGB(190, 190, 200)
+    label.TextXAlignment = Enum.TextXAlignment.Left
+    label.Parent = container
+
+    local function updateVisualState()
+        checkFill.Visible = Toggles[toggleKey]
+        if Toggles[toggleKey] then
+            boxStroke.Color = Color3.fromRGB(140, 80, 240)
+            label.TextColor3 = Color3.fromRGB(230, 220, 255)
+        else
+            boxStroke.Color = Color3.fromRGB(60, 60, 80)
+            label.TextColor3 = Color3.fromRGB(180, 180, 190)
+        end
+    end
+
+    local function triggerToggle()
+        Toggles[toggleKey] = not Toggles[toggleKey]
+        updateVisualState()
+    end
+
+    boxButton.MouseButton1Click:Connect(triggerToggle)
+    label.MouseButton1Click:Connect(triggerToggle)
+end
+
+--------------------------------------------------------------
+-- POPULATE FEATURES INTO MODERN SECTIONS
+--------------------------------------------------------------
+-- Main Tab Features
+local combatSection = createSection(Pages["MAIN"], "Combat Mechanics")
+createCheckbox(combatSection, "DefenseAttorneyQTE", "Defense Attorney QTE")
+createCheckbox(combatSection, "NanamiAutoRatio", "Nanami Auto Ratio Matcher")
+createCheckbox(combatSection, "TodoAutoPerfectSwap", "Todo Auto Perfect Swap")
+createCheckbox(combatSection, "CharaAutoQTE", "Chara Script QTE Trigger")
+createCheckbox(combatSection, "AutoBlock", "Auto Dynamic Blocking")
+
+local miscSection = createSection(Pages["MAIN"], "Utilities")
+createCheckbox(miscSection, "HiromiVoteTracker", "Hiromi Judgeman Vote Tracker")
+
+-- Visuals Tab Features
+local espSection = createSection(Pages["VISUALS"], "Visual Sensory Matrix (ESP)")
+createCheckbox(espSection, "ItemsESP", "Enable Items Filtering ESP")
+createCheckbox(espSection, "DummyESP", "Enable Combat Dummy Target ESP")
+createCheckbox(espSection, "DomainHealthESP", "Domain Expansion Barrier ESP")
+
+-- Settings Tab Context Layout
+local configSection = createSection(Pages["SETTINGS"], "Menu Core Keybinds")
+local bindLabel = Instance.new("TextLabel")
+bindLabel.Text = "Press [F1] to instantly minimize/restore this UI panel."
+bindLabel.Font = Enum.Font.Gotham
+bindLabel.TextSize = 12
+bindLabel.TextColor3 = Color3.fromRGB(160, 160, 170)
+bindLabel.TextXAlignment = Enum.TextXAlignment.Left
+bindLabel.Size = UDim2.new(1, 0, 0, 25)
+bindLabel.BackgroundTransparency = 1
+bindLabel.Parent = configSection
+
+-- About Tab Context Layout
+local infoSection = createSection(Pages["ABOUT"], "Execution Information")
+local infoText = Instance.new("TextLabel")
+infoText.Text = "Engine Platform: Matcha Core Layer\nStatus: Active / Undetected\nTheme Color: Purple Highlight Variant"
+infoText.Font = Enum.Font.Gotham
+infoText.TextSize = 12
+infoText.TextColor3 = Color3.fromRGB(160, 160, 170)
+infoText.TextXAlignment = Enum.TextXAlignment.Left
+infoText.Size = UDim2.new(1, 0, 0, 60)
+infoText.BackgroundTransparency = 1
+infoText.Parent = infoSection
+
+--------------------------------------------------------------
+-- F1 GLOBAL MINIMIZE/MAXIMIZE ACTION HOOK
+--------------------------------------------------------------
+local UserInputService = game:GetService("UserInputService")
+local panelMinimized = false
+
+UserInputService.InputBegan:Connect(function(input, gameProcessed)
+    if not gameProcessed and input.KeyCode == Enum.KeyCode.F1 then
+        panelMinimized = not panelMinimized
+        MainFrame.Visible = not panelMinimized
+    end
+end)
+
+--------------------------------------------------------------
+-- BACKGROUND GAME PLAY ENGINE AUTOMATIONS LOOP
+--------------------------------------------------------------
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Workspace = game:GetService("Workspace")
+local Players = game:GetService("Players")
+local LP = Players.LocalPlayer
+
+local function getHRP()
+    local c = LP.Character
+    return c and c:FindFirstChild("HumanoidRootPart")
+end
+
+local function findRemote(name)
+    for _, v in pairs(ReplicatedStorage:GetDescendants()) do
+        if v:IsA("RemoteEvent") and v.Name:lower():find(name:lower()) then return v end
+    end
+    return nil
+end
+
+local function runQTEAutomation()
+    local pg = LP:FindFirstChild("PlayerGui")
+    if not pg then return end
+    for _, v in pairs(pg:GetDescendants()) do
+        if v:IsA("TextButton") or v:IsA("ImageButton") then
+            local name = v.Name:lower()
+            if name:find("qte") or name:find("hit") or name:find("prompt") or name:find("attorney") then
+                if v.Visible then
+                    local remote = findRemote("qte") or findRemote("attorney")
+                    if remote then remote:FireServer("Success", true) end
+                end
+            end
+        end
+    end
+end
+
+local function runRatioAutomation()
+    local remote = findRemote("ratio") or findRemote("nanami")
+    if remote then remote:FireServer("Ratio", true) end
+end
+
+local function runSwapAutomation()
+    local remote = findRemote("swap") or findRemote("todo")
+    if remote then remote:FireServer("PerfectSwap", true) end
+end
+
+local function handleAutoBlock()
+    local remote = findRemote("block") or findRemote("guard")
+    if remote then remote:FireServer(true) end
+end
+
+-- Fast-response operational automation runner loop
+game:GetService("RunService").RenderStepped:Connect(function()
+    if Toggles.DefenseAttorneyQTE or Toggles.CharaAutoQTE then pcall(runQTEAutomation) end
+    if Toggles.NanamiAutoRatio then pcall(runRatioAutomation) end
+    if Toggles.TodoAutoPerfectSwap then pcall(runSwapAutomation) end
+    if Toggles.AutoBlock then pcall(handleAutoBlock) end
+end)
+
+--------------------------------------------------------------
+-- HIGHLY STABLE WORLD SPACE ESP SYSTEM
+--------------------------------------------------------------
+local SafeDrawing = nil
+if type(Drawing) == "table" and Drawing.new then
+    SafeDrawing = Drawing
+elseif type(_G.Drawing) == "table" and _G.Drawing.new then
+    SafeDrawing = _G.Drawing
+end
+
+-- Async Workspace Entity Tracker Cache Loop
+task.spawn(function()
+    while true do
+        local tempCache = {}
+        local allObjects = Workspace:GetDescendants()
+        
+        for _, obj in pairs(allObjects) do
+            if obj:IsA("Model") or obj:IsA("BasePart") then
+                local nameLower = obj.Name:lower()
+                local parentNameLower = obj.Parent and obj.Parent.Name:lower() or ""
+                
+                local isDummy = nameLower:find("dummy") or parentNameLower:find("dummy")
+                local isItem = obj:IsA("Tool") or nameLower:find("pickup") or nameLower:find("cursed")
+                local isDomain = nameLower:find("domain")
+                
+                if isDummy or isItem or isDomain then
+                    local hrp = obj:FindFirstChild("HumanoidRootPart") or obj:FindFirstChildWhichIsA("BasePart") or (obj:IsA("BasePart") and obj)
+                    if hrp then
+                        table.insert(tempCache, {
+                            instance = obj,
+                            hrp = hrp,
+                            type = isDummy and "dummy" or (isDomain and "domain" or "item")
+                        })
+                    end
+                end
+            end
+        end
+        
+        CachedTargets = tempCache
+        task.wait(1.5)
+    end
+end)
+
+-- ESP Real-Time Drawing Overlay Execution Frame Loop
+game:GetService("RunService").RenderStepped:Connect(function()
+    if SafeDrawing then
+        for _, drawObj in pairs(ActiveESP) do
+            pcall(function() drawObj:Remove() end)
+        end
+        ActiveESP = {}
+
+        local myHrp = getHRP()
+        local camera = Workspace.CurrentCamera
+        if not camera then return end
+
+        for _, cache in pairs(CachedTargets) do
+            if not cache.instance or not cache.instance.Parent then continue end
+            if cache.instance == LP.Character or cache.instance.Parent == LP.Character then continue end
+
+            local renderEnabled = false
+            if cache.type == "dummy" and Toggles.DummyESP then renderEnabled = true
+            elseif cache.type == "item" and Toggles.ItemsESP then renderEnabled = true
+            elseif cache.type == "domain" and Toggles.DomainHealthESP then renderEnabled = true end
+
+            if renderEnabled then
+                local screenPos3D, onScreen = camera:WorldToViewportPoint(cache.hrp.Position)
+                if onScreen then
+                    local dist = myHrp and math.floor((myHrp.Position - cache.hrp.Position).Magnitude) or 0
+                    local labelText = cache.instance.Name .. " [" .. dist .. "m]"
+                    
+                    local drawColor = Color3.fromRGB(160, 90, 255) -- Matching Purple Accent theme
+                    if cache.type == "dummy" then 
+                        drawColor = Color3.fromRGB(255, 90, 90) 
+                    elseif cache.type == "domain" then 
+                        drawColor = Color3.fromRGB(240, 70, 180) 
+                    end
+
+                    local espLabel = SafeDrawing.new("Text")
+                    espLabel.Text = labelText
+                    espLabel.Position = Vector2.new(screenPos3D.X, screenPos3D.Y)
+                    espLabel.Size = 13
+                    espLabel.Color = drawColor
+                    espLabel.Center = true
+                    espLabel.Outline = true
+                    espLabel.Visible = true
+                    table.insert(ActiveESP, espLabel)
+                end
+            end
+        end
+    end
+end)
