@@ -129,12 +129,14 @@ MainFrame.Parent = ScreenGui
 MainFrame.Active = true
 MainFrame.Draggable = true
 
-local corner = Instance.new("UICorner", MainFrame)
+local corner = Instance.new("UICorner")
 corner.CornerRadius = UDim.new(0, 10)
+corner.Parent = MainFrame
 
-local stroke = Instance.new("UIStroke", MainFrame)
+local stroke = Instance.new("UIStroke")
 stroke.Color = Color3.fromRGB(120, 60, 200)
 stroke.Thickness = 2
+stroke.Parent = MainFrame
 
 -- Title
 local Title = Instance.new("TextLabel")
@@ -147,8 +149,9 @@ Title.TextSize = 16
 Title.Font = Enum.Font.GothamBold
 Title.Parent = MainFrame
 
-local titleCorner = Instance.new("UICorner", Title)
+local titleCorner = Instance.new("UICorner")
 titleCorner.CornerRadius = UDim.new(0, 10)
+titleCorner.Parent = Title
 
 -- Scroll frame for toggles
 local ScrollFrame = Instance.new("ScrollingFrame")
@@ -160,9 +163,10 @@ ScrollFrame.ScrollBarThickness = 4
 ScrollFrame.ScrollBarImageColor3 = Color3.fromRGB(120, 60, 200)
 ScrollFrame.Parent = MainFrame
 
-local layout = Instance.new("UIListLayout", ScrollFrame)
+local layout = Instance.new("UIListLayout")
 layout.SortOrder = Enum.SortOrder.LayoutOrder
 layout.Padding = UDim.new(0, 6)
+layout.Parent = ScrollFrame
 
 local ToggleButtons = {}
 
@@ -192,12 +196,14 @@ for i, feat in ipairs(featureList) do
     btn.LayoutOrder = i
     btn.Parent = ScrollFrame
 
-    local bc = Instance.new("UICorner", btn)
+    local bc = Instance.new("UICorner")
     bc.CornerRadius = UDim.new(0, 6)
+    bc.Parent = btn
 
-    local bs = Instance.new("UIStroke", btn)
+    local bs = Instance.new("UIStroke")
     bs.Color = Color3.fromRGB(50, 50, 65)
     bs.Thickness = 1
+    bs.Parent = btn
 
     btn.MouseButton1Click:Connect(function()
         Toggles[feat.key] = not Toggles[feat.key]
@@ -270,36 +276,31 @@ end
 --------------------------------------------------------------
 -- 1) DEFENSE ATTORNEY QTE
 --------------------------------------------------------------
-local function setupDefenseAttorneyQTE()
-    -- hooks into QTE gui elements and auto-clicks them
-    local function scanForQTE()
-        local pg = LP:FindFirstChild("PlayerGui")
-        if not pg then return end
-        for _, gui in pairs(pg:GetDescendants()) do
-            if gui:IsA("Frame") or gui:IsA("ImageButton") or gui:IsA("TextButton") then
-                local n = gui.Name:lower()
-                if (n:find("qte") or n:find("attorney") or n:find("defense") or n:find("prompt") or n:find("hit") or n:find("press")) then
-                    if gui:IsA("TextButton") or gui:IsA("ImageButton") then
-                        if gui.Visible and gui.Active then
-                            -- fire click
-                            firesignal(gui.MouseButton1Click)
-                            -- also try activating
-                            firesignal(gui.Activated)
-                        end
+local function scanForQTE()
+    local pg = LP:FindFirstChild("PlayerGui")
+    if not pg then return end
+    for _, gui in pairs(pg:GetDescendants()) do
+        if gui:IsA("Frame") or gui:IsA("ImageButton") or gui:IsA("TextButton") then
+            local n = gui.Name:lower()
+            if (n:find("qte") or n:find("attorney") or n:find("defense") or n:find("prompt") or n:find("hit") or n:find("press")) then
+                if gui:IsA("TextButton") or gui:IsA("ImageButton") then
+                    if gui.Visible and gui.Active then
+                        firesignal(gui.MouseButton1Click)
+                        firesignal(gui.Activated)
                     end
                 end
             end
         end
     end
+end
 
-    -- also hook remotes
+local function setupDefenseAttorneyQTE()
     local qteRemote = findRemote("qte") or findRemote("attorney") or findRemote("defense")
     if qteRemote and qteRemote:IsA("RemoteEvent") then
         qteRemote:FireServer("Success")
         qteRemote:FireServer("Hit")
         qteRemote:FireServer(true)
     end
-
     scanForQTE()
 end
 
@@ -317,7 +318,6 @@ local function setupNanamiAutoRatio()
         end
     end
 
-    -- scan for ratio GUI prompts
     local pg = LP:FindFirstChild("PlayerGui")
     if not pg then return end
     for _, gui in pairs(pg:GetDescendants()) do
@@ -348,7 +348,6 @@ local function setupTodoAutoSwap()
         end
     end
 
-    -- scan for swap timing GUI
     local pg = LP:FindFirstChild("PlayerGui")
     if not pg then return end
     for _, gui in pairs(pg:GetDescendants()) do
@@ -376,7 +375,6 @@ local function setupCharaAutoQTE()
         end
     end
 
-    -- auto hit any QTE prompt that appears
     local pg = LP:FindFirstChild("PlayerGui")
     if not pg then return end
     for _, gui in pairs(pg:GetDescendants()) do
@@ -408,11 +406,14 @@ local function setupHiromiVoteTracker()
     voteFrame.BorderSizePixel = 0
     voteFrame.Parent = ScreenGui
 
-    local vc = Instance.new("UICorner", voteFrame)
+    local vc = Instance.new("UICorner")
     vc.CornerRadius = UDim.new(0, 8)
-    local vs = Instance.new("UIStroke", voteFrame)
+    vc.Parent = voteFrame
+    
+    local vs = Instance.new("UIStroke")
     vs.Color = Color3.fromRGB(200, 160, 50)
     vs.Thickness = 2
+    vs.Parent = voteFrame
 
     local vTitle = Instance.new("TextLabel")
     vTitle.Size = UDim2.new(1, 0, 0, 30)
@@ -451,7 +452,6 @@ local function updateHiromiVotes()
     local guilty = 0
     local innocent = 0
 
-    -- scan workspace / replicated for vote data
     for _, obj in pairs(Workspace:GetDescendants()) do
         local n = obj.Name:lower()
         if n:find("vote") or n:find("guilty") or n:find("innocent") or n:find("verdict") then
@@ -467,7 +467,6 @@ local function updateHiromiVotes()
         end
     end
 
-    -- also check replicated
     for _, obj in pairs(ReplicatedStorage:GetDescendants()) do
         local n = obj.Name:lower()
         if n:find("vote") or n:find("guilty") or n:find("innocent") or n:find("verdict") then
@@ -477,7 +476,6 @@ local function updateHiromiVotes()
         end
     end
 
-    -- check player guis for vote indicators
     for _, plr in pairs(Players:GetPlayers()) do
         local pg = plr:FindFirstChild("PlayerGui")
         if pg then
@@ -505,7 +503,6 @@ local function updateItemsESP()
     clearESP("Items")
     if not Toggles.ItemsESP then return end
 
-    -- scan workspace for items/tools/pickups
     for _, obj in pairs(Workspace:GetDescendants()) do
         if obj:IsA("Tool") or (obj:IsA("Model") and (obj.Name:lower():find("item") or obj.Name:lower():find("pickup") or obj.Name:lower():find("drop") or obj.Name:lower():find("cursed") or obj.Name:lower():find("weapon") or obj.Name:lower():find("finger") or obj.Name:lower():find("object"))) then
             local part = obj:FindFirstChild("Handle") or obj:FindFirstChildWhichIsA("BasePart")
@@ -517,7 +514,6 @@ local function updateItemsESP()
         end
     end
 
-    -- also check for ClickDetector based items
     for _, obj in pairs(Workspace:GetDescendants()) do
         if obj:IsA("ClickDetector") then
             local parent = obj.Parent
@@ -581,7 +577,6 @@ local function updateDomainHealthESP()
                     table.insert(ESPObjects.Domains, bb)
                 end
             elseif obj:IsA("BasePart") then
-                -- domains might be single parts with health stored in attributes
                 local hp = obj:GetAttribute("Health") or obj:GetAttribute("HP")
                 if hp then
                     local dist = getDistance(obj)
@@ -594,7 +589,6 @@ local function updateDomainHealthESP()
         end
     end
 
-    -- check IntValue/NumberValue children named Health inside domain models
     for _, obj in pairs(Workspace:GetDescendants()) do
         if (obj:IsA("IntValue") or obj:IsA("NumberValue")) and obj.Name:lower():find("health") then
             local parent = obj.Parent
@@ -617,7 +611,6 @@ end
 local function setupAutoBlock()
     local blockRemote = findRemote("block") or findRemote("guard") or findRemote("defend")
 
-    -- method 1: fire remote
     if blockRemote then
         if blockRemote:IsA("RemoteEvent") then
             blockRemote:FireServer(true)
@@ -625,7 +618,6 @@ local function setupAutoBlock()
         end
     end
 
-    -- method 2: simulate key hold (F key is common block key in JJS)
     local vim = game:GetService("VirtualInputManager")
     if vim then
         pcall(function()
@@ -633,7 +625,6 @@ local function setupAutoBlock()
         end)
     end
 
-    -- method 3: check for block in character scripts
     local char = getChar()
     if char then
         for _, v in pairs(char:GetDescendants()) do
@@ -669,27 +660,22 @@ local lastBlockState = false
 local voteBody = nil
 
 Connections.Main = RunService.Heartbeat:Connect(function()
-    -- Defense Attorney QTE
     if Toggles.DefenseAttorneyQTE then
         pcall(setupDefenseAttorneyQTE)
     end
 
-    -- Nanami Auto Ratio
     if Toggles.NanamiAutoRatio then
         pcall(setupNanamiAutoRatio)
     end
 
-    -- Todo Auto Perfect Swap
     if Toggles.TodoAutoPerfectSwap then
         pcall(setupTodoAutoSwap)
     end
 
-    -- Chara Auto QTE
     if Toggles.CharaAutoQTE then
         pcall(setupCharaAutoQTE)
     end
 
-    -- Hiromi Vote Tracker
     if Toggles.HiromiVoteTracker then
         if not voteBody then
             voteBody = setupHiromiVoteTracker()
@@ -700,7 +686,6 @@ Connections.Main = RunService.Heartbeat:Connect(function()
         if HiromiVoteGui then HiromiVoteGui.Visible = false end
     end
 
-    -- Auto Block
     if Toggles.AutoBlock then
         if not lastBlockState then
             pcall(setupAutoBlock)
@@ -714,7 +699,6 @@ Connections.Main = RunService.Heartbeat:Connect(function()
     end
 end)
 
--- ESP runs on a slower loop to not tank fps
 task.spawn(function()
     while task.wait(1) do
         if Toggles.ItemsESP then
@@ -751,7 +735,6 @@ local function cleanup()
     ScreenGui:Destroy()
 end
 
--- store cleanup ref
 pcall(function()
     if getgenv then
         getgenv().__jjs_cleanup = cleanup
