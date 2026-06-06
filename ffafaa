@@ -128,31 +128,35 @@ end
 -- ============================================================
 -- MODEL BOUNDS  (walks every BasePart for a real AABB)
 -- ============================================================
-local function model_aabb(inst)
-    if inst:IsA("BasePart") then
-        return inst.Position, inst.Size
-    end
-    local minX, minY, minZ =  math.huge,  math.huge,  math.huge
-    local maxX, maxY, maxZ = -math.huge, -math.huge, -math.huge
-    local found = false
-    local kids = inst:GetDescendants()
-    for _, p in ipairs(kids) do
-        if p:IsA("BasePart") then
-            local pos, sz = p.Position, p.Size
-            local hx, hy, hz = sz.X*0.5, sz.Y*0.5, sz.Z*0.5
-            if pos.X-hx < minX then minX = pos.X-hx end
-            if pos.Y-hy < minY then minY = pos.Y-hy end
-            if pos.Z-hz < minZ then minZ = pos.Z-hz end
-            if pos.X+hx > maxX then maxX = pos.X+hx end
-            if pos.Y+hy > maxY then maxY = pos.Y+hy end
-            if pos.Z+hz > maxZ then maxZ = pos.Z+hz end
-            found = true
+local function project_aabb(center, size)
+    local hx, hy, hz = size.X*0.5, size.Y*0.5, size.Z*0.5
+    local offsets = {
+        Vector3.new(-hx,-hy,-hz),Vector3.new( hx,-hy,-hz),
+        Vector3.new(-hx, hy,-hz),Vector3.new( hx, hy,-hz),
+        Vector3.new(-hx,-hy, hz),Vector3.new( hx,-hy, hz),
+        Vector3.new(-hx, hy, hz),Vector3.new( hx, hy, hz),
+    }
+    local minX, minY, maxX, maxY = math.huge, math.huge, -math.huge, -math.huge
+    local any_on = false
+    
+    for _, off in ipairs(offsets) do
+        local sp, on = WorldToScreen(Vector3.new(center.X+off.X, center.Y+off.Y, center.Z+off.Z))
+        if sp then
+            if sp.X < minX then minX = sp.X end
+            if sp.Y < minY then minY = sp.Y end
+            if sp.X > maxX then maxX = sp.X end
+            if sp.Y > maxY then maxY = sp.Y end
+            if on then any_on = true end
         end
     end
-    if not found then return nil, nil end
-    local center = Vector3.new((minX+maxX)*0.5, (minY+maxY)*0.5, (minZ+maxZ)*0.5)
-    local size   = Vector3.new(maxX-minX, maxY-minY, maxZ-minZ)
-    return center, size
+    
+    if not any_on or minX == math.huge then return nil end
+    
+    -- Ensure w and h are strictly positive and have a minimum floor
+    local w = math.max(16, maxX - minX)
+    local h = math.max(16, maxY - minY)
+    
+    return minX, minY, w, h
 end
 
 local function project_aabb(center, size)
