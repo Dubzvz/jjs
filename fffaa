@@ -435,14 +435,25 @@ local function classify(inst)
 end
 
 local function find_humanoid_or_health(inst)
-    local h = inst:FindFirstChildWhichIsA and inst:FindFirstChildWhichIsA("Humanoid") or nil
-    if h then return h.Health, h.MaxHealth end
+    -- Humanoid via method
+    local ok, h = pcall(function() return inst:FindFirstChildWhichIsA("Humanoid") end)
+    if ok and h then return h.Health, h.MaxHealth end
+
     -- ValueBase fallback
     local hv = inst:FindFirstChild("Health") or inst:FindFirstChild("DomainHealth")
     if hv and hv.Value then
         local mv = inst:FindFirstChild("MaxHealth")
         return hv.Value, (mv and mv.Value) or hv.Value
     end
+
+    -- Attribute fallback
+    local ok2, ah = pcall(function() return inst:GetAttribute("Health") or inst:GetAttribute("DomainHealth") end)
+    if ok2 and ah then
+        local _, am = pcall(function() return inst:GetAttribute("MaxHealth") end)
+        return ah, am or ah
+    end
+    return nil, nil
+end
     -- Attribute fallback
     if inst.GetAttribute then
         local ah = inst:GetAttribute("Health") or inst:GetAttribute("DomainHealth")
