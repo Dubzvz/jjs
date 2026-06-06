@@ -1,10 +1,13 @@
 --[[
-    JJS (Jujutsu Shenanigans) Script - Studio Compatible
+    JJS (Jujutsu Shenanigans) Script - Executor Fixed
     Features: Defense Attorney QTE, Nanami Auto Ratio, Todo Auto Perfect Swap,
               Chara Auto QTE, Hiromi Vote Tracker, Items ESP, Dummy ESP,
               Domain Health ESP, Auto Block
     Toggle Menu: F1
 ]]
+
+-- Environment Safety
+local getgenv = (typeof(getgenv) == "function" and getgenv) or function() return _G end
 
 -- Services
 local Players = game:GetService("Players")
@@ -31,22 +34,6 @@ local Toggles = {
 
 local ESPObjects = { Items = {}, Dummies = {}, Domains = {} }
 local Connections = {}
-
--- Safely mock firesignal for Studio environment compatibility
-local function safeFireSignal(button)
-    if not button then return end
-    pcall(function()
-        if button:IsA("TextButton") or button:IsA("ImageButton") then
-            -- Simulate the clicks programmatically since firesignal is an exploit function
-            for _, conn in pairs(getconnections and getconnections(button.MouseButton1Click) or {}) do
-                if conn.Function then task.spawn(conn.Function) end
-            end
-            for _, conn in pairs(getconnections and getconnections(button.Activated) or {}) do
-                if conn.Function then task.spawn(conn.Function) end
-            end
-        end
-    end)
-end
 
 --------------------------------------------------------------
 -- UTILITY
@@ -87,10 +74,24 @@ end
 --------------------------------------------------------------
 -- GUI SETUP
 --------------------------------------------------------------
-local targetGuiParent = LP:WaitForChild("PlayerGui")
+-- Clean up old active script processes safely
+pcall(function()
+    local env = getgenv()
+    if env and env.__jjs_cleanup then
+        env.__jjs_cleanup()
+    end
+end)
 
--- destroy any leftover gui from previous runs
-for _, g in pairs(targetGuiParent:GetChildren()) do
+-- Clear old UI duplicates from CoreGui or PlayerGui
+pcall(function()
+    local coreGui = game:GetService("CoreGui")
+    if coreGui then
+        for _, g in pairs(coreGui:GetChildren()) do
+            if g.Name == "JJS_Menu" then g:Destroy() end
+        end
+    end
+end)
+for _, g in pairs(LP:WaitForChild("PlayerGui"):GetChildren()) do
     if g.Name == "JJS_Menu" then g:Destroy() end
 end
 
@@ -98,7 +99,31 @@ local ScreenGui = Instance.new("ScreenGui")
 ScreenGui.Name = "JJS_Menu"
 ScreenGui.ResetOnSpawn = false
 ScreenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
-ScreenGui.Parent = targetGuiParent
+
+-- Handle secure parenting for modern executors
+local guiParented = false
+if typeof(syn) == "table" and syn.protect_gui then
+    pcall(function()
+        syn.protect_gui(ScreenGui)
+        ScreenGui.Parent = game:GetService("CoreGui")
+        guiParented = true
+    end)
+end
+if not guiParented and typeof(gethui) == "function" then
+    pcall(function()
+        ScreenGui.Parent = gethui()
+        guiParented = true
+    end)
+end
+if not guiParented then
+    pcall(function()
+        ScreenGui.Parent = game:GetService("CoreGui")
+        guiParented = true
+    end)
+end
+if not guiParented then
+    ScreenGui.Parent = LP:WaitForChild("PlayerGui")
+end
 
 -- Main Frame
 local MainFrame = Instance.new("Frame")
@@ -109,28 +134,7 @@ MainFrame.BackgroundColor3 = Color3.fromRGB(18, 18, 24)
 MainFrame.BorderSizePixel = 0
 MainFrame.Parent = ScreenGui
 MainFrame.Active = true
-
--- Basic drag implementation for Studio compatibility
-local dragging, dragInput, dragStart, startPos
-MainFrame.InputBegan:Connect(function(input)
-    if input.UserInputType == Enum.UserInputType.MouseButton1 then
-        dragging = true
-        dragStart = input.Position
-        startPos = MainFrame.Position
-        input.Changed:Connect(function()
-            if input.UserInputState == Enum.UserInputState.End then dragging = false end
-        end)
-    end
-end)
-MainFrame.InputChanged:Connect(function(input)
-    if input.UserInputType == Enum.UserInputType.MouseMovement then dragInput = input end
-end)
-UserInputService.InputChanged:Connect(function(input)
-    if input == dragInput and dragging then
-        local delta = input.Position - dragStart
-        MainFrame.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
-    end
-end)
+MainFrame.Draggable = true
 
 local corner = Instance.new("UICorner")
 corner.CornerRadius = UDim.new(0, 10)
@@ -277,7 +281,7 @@ local function getDistance(part)
 end
 
 --------------------------------------------------------------
--- 1) DEFENSE ATTORNEY QTE
+-- FEATURES IMPLEMENTATION
 --------------------------------------------------------------
 local function scanForQTE()
     local pg = LP:FindFirstChild("PlayerGui")
@@ -287,8 +291,9 @@ local function scanForQTE()
             local n = gui.Name:lower()
             if (n:find("qte") or n:find("attorney") or n:find("defense") or n:find("prompt") or n:find("hit") or n:find("press")) then
                 if gui:IsA("TextButton") or gui:IsA("ImageButton") then
-                    if gui.Visible and gui.Active then
-                        safeFireSignal(gui)
+                    if gui.Visible and gui.Active and typeof(firesignal) == "function" then
+                        pcall(function() firesignal(gui.MouseButton1Click) end)
+                        pcall(function() firesignal(gui.Activated) end)
                     end
                 end
             end
@@ -306,9 +311,6 @@ local function setupDefenseAttorneyQTE()
     scanForQTE()
 end
 
---------------------------------------------------------------
--- 2) NANAMI AUTO RATIO
---------------------------------------------------------------
 local function setupNanamiAutoRatio()
     local ratioRemote = findRemote("ratio") or findRemote("nanami") or findRemote("weak")
     if ratioRemote then
@@ -326,17 +328,15 @@ local function setupNanamiAutoRatio()
         if gui:IsA("TextButton") or gui:IsA("ImageButton") then
             local n = gui.Name:lower()
             if n:find("ratio") or n:find("weak") or n:find("point") then
-                if gui.Visible then
-                    safeFireSignal(gui)
+                if gui.Visible and typeof(firesignal) == "function" then
+                    pcall(function() firesignal(gui.MouseButton1Click) end)
+                    pcall(function() firesignal(gui.Activated) end)
                 end
             end
         end
     end
 end
 
---------------------------------------------------------------
--- 3) TODO AUTO PERFECT SWAP
---------------------------------------------------------------
 local function setupTodoAutoSwap()
     local swapRemote = findRemote("swap") or findRemote("todo") or findRemote("boogie") or findRemote("clap")
     if swapRemote then
@@ -355,17 +355,14 @@ local function setupTodoAutoSwap()
         if (gui:IsA("TextButton") or gui:IsA("ImageButton") or gui:IsA("Frame")) then
             local n = gui.Name:lower()
             if n:find("swap") or n:find("clap") or n:find("boogie") or n:find("todo") or n:find("timing") then
-                if (gui:IsA("TextButton") or gui:IsA("ImageButton")) and gui.Visible then
-                    safeFireSignal(gui)
+                if (gui:IsA("TextButton") or gui:IsA("ImageButton")) and gui.Visible and typeof(firesignal) == "function" then
+                    pcall(function() firesignal(gui.MouseButton1Click) end)
                 end
             end
         end
     end
 end
 
---------------------------------------------------------------
--- 4) CHARA AUTO QTE
---------------------------------------------------------------
 local function setupCharaAutoQTE()
     local charaRemote = findRemote("chara") or findRemote("qte")
     if charaRemote then
@@ -382,19 +379,16 @@ local function setupCharaAutoQTE()
         if gui:IsA("TextButton") or gui:IsA("ImageButton") then
             local n = gui.Name:lower()
             if n:find("qte") or n:find("chara") or n:find("hit") or n:find("press") or n:find("click") then
-                if gui.Visible and gui.Active then
-                    safeFireSignal(gui)
+                if gui.Visible and gui.Active and typeof(firesignal) == "function" then
+                    pcall(function() firesignal(gui.MouseButton1Click) end)
+                    pcall(function() firesignal(gui.Activated) end)
                 end
             end
         end
     end
 end
 
---------------------------------------------------------------
--- 5) HIROMI VOTE TRACKER
---------------------------------------------------------------
 local HiromiVoteGui = nil
-
 local function setupHiromiVoteTracker()
     if HiromiVoteGui then return end
 
@@ -439,7 +433,6 @@ local function setupHiromiVoteTracker()
     vBody.Parent = voteFrame
 
     HiromiVoteGui = voteFrame
-
     return vBody
 end
 
@@ -467,44 +460,19 @@ local function updateHiromiVotes()
         end
     end
 
-    for _, obj in pairs(ReplicatedStorage:GetDescendants()) do
-        local n = obj.Name:lower()
-        if n:find("vote") or n:find("guilty") or n:find("innocent") or n:find("verdict") then
-            if obj:IsA("StringValue") or obj:IsA("IntValue") or obj:IsA("NumberValue") then
-                voteText = voteText .. obj.Name .. ": " .. tostring(obj.Value) .. "\n"
-            end
-        end
-    end
-
-    for _, plr in pairs(Players:GetPlayers()) do
-        local pg = plr:FindFirstChild("PlayerGui")
-        if pg then
-            for _, g in pairs(pg:GetDescendants()) do
-                if g:IsA("TextLabel") and g.Name:lower():find("vote") then
-                    voteText = voteText .. plr.Name .. ": " .. g.Text .. "\n"
-                end
-            end
-        end
-    end
-
     if voteText == "" then
         voteText = "No active vote detected\nGuilty: " .. guilty .. " | Innocent: " .. innocent
     else
         voteText = voteText .. "\n---\nGuilty: " .. guilty .. " | Innocent: " .. innocent
     end
-
     vBody.Text = voteText
 end
 
---------------------------------------------------------------
--- 6) ITEMS ESP
---------------------------------------------------------------
 local function updateItemsESP()
     clearESP("Items")
     if not Toggles.ItemsESP then return end
-
     for _, obj in pairs(Workspace:GetDescendants()) do
-        if obj:IsA("Tool") or (obj:IsA("Model") and (obj.Name:lower():find("item") or obj.Name:lower():find("pickup") or obj.Name:lower():find("drop") or obj.Name:lower():find("cursed") or obj.Name:lower():find("weapon") or obj.Name:lower():find("finger") or obj.Name:lower():find("object"))) then
+        if obj:IsA("Tool") or (obj:IsA("Model") and (obj.Name:lower():find("item") or obj.Name:lower():find("pickup"))) then
             local part = obj:FindFirstChild("Handle") or obj:FindFirstChildWhichIsA("BasePart")
             if part then
                 local dist = getDistance(part)
@@ -513,159 +481,69 @@ local function updateItemsESP()
             end
         end
     end
-
-    for _, obj in pairs(Workspace:GetDescendants()) do
-        if obj:IsA("ClickDetector") then
-            local parent = obj.Parent
-            if parent and parent:IsA("BasePart") then
-                local n = parent.Name:lower()
-                if n:find("item") or n:find("pick") or n:find("loot") or n:find("chest") or n:find("cursed") then
-                    local dist = getDistance(parent)
-                    local bb = createESPBillboard(parent, parent.Name .. " [" .. dist .. "m]", Color3.fromRGB(0, 200, 255))
-                    table.insert(ESPObjects.Items, bb)
-                end
-            end
-        end
-    end
 end
 
---------------------------------------------------------------
--- 7) DUMMY ESP
---------------------------------------------------------------
 local function updateDummyESP()
     clearESP("Dummies")
     if not Toggles.DummyESP then return end
-
     for _, obj in pairs(Workspace:GetDescendants()) do
-        if obj:IsA("Model") then
-            local n = obj.Name:lower()
-            if n:find("dummy") or n:find("training") or n:find("target") or n:find("npc") or n:find("test") then
-                local hrp = obj:FindFirstChild("HumanoidRootPart") or obj:FindFirstChild("Head") or obj:FindFirstChildWhichIsA("BasePart")
-                local hum = obj:FindFirstChildOfClass("Humanoid")
-                if hrp then
-                    local dist = getDistance(hrp)
-                    local hp = hum and math.floor(hum.Health) or "?"
-                    local maxhp = hum and math.floor(hum.MaxHealth) or "?"
-                    local text = obj.Name .. " [" .. dist .. "m]\nHP: " .. tostring(hp) .. "/" .. tostring(maxhp)
-                    local bb = createESPBillboard(hrp, text, Color3.fromRGB(255, 100, 100))
-                    table.insert(ESPObjects.Dummies, bb)
-                end
+        if obj:IsA("Model") and obj.Name:lower():find("dummy") then
+            local hrp = obj:FindFirstChild("HumanoidRootPart") or obj:FindFirstChildWhichIsA("BasePart")
+            local hum = obj:FindFirstChildOfClass("Humanoid")
+            if hrp then
+                local dist = getDistance(hrp)
+                local hp = hum and math.floor(hum.Health) or "?"
+                local maxhp = hum and math.floor(hum.MaxHealth) or "?"
+                local text = obj.Name .. " [" .. dist .. "m]\nHP: " .. tostring(hp) .. "/" .. tostring(maxhp)
+                local bb = createESPBillboard(hrp, text, Color3.fromRGB(255, 100, 100))
+                table.insert(ESPObjects.Dummies, bb)
             end
         end
     end
 end
 
---------------------------------------------------------------
--- 8) DOMAIN HEALTH ESP
---------------------------------------------------------------
 local function updateDomainHealthESP()
     clearESP("Domains")
     if not Toggles.DomainHealthESP then return end
-
     for _, obj in pairs(Workspace:GetDescendants()) do
-        local n = obj.Name:lower()
-        if n:find("domain") or n:find("expansion") or n:find("barrier") then
-            if obj:IsA("Model") then
-                local hum = obj:FindFirstChildOfClass("Humanoid")
-                local part = obj:FindFirstChild("HumanoidRootPart") or obj:FindFirstChildWhichIsA("BasePart")
-                if part then
-                    local dist = getDistance(part)
-                    local hp = hum and math.floor(hum.Health) or "?"
-                    local maxhp = hum and math.floor(hum.MaxHealth) or "?"
-                    local text = "DOMAIN [" .. dist .. "m]\nHP: " .. tostring(hp) .. "/" .. tostring(maxhp)
-                    local bb = createESPBillboard(part, text, Color3.fromRGB(255, 50, 200))
-                    table.insert(ESPObjects.Domains, bb)
-                end
-            elseif obj:IsA("BasePart") then
-                local hp = obj:GetAttribute("Health") or obj:GetAttribute("HP")
-                if hp then
-                    local dist = getDistance(obj)
-                    local maxhp = obj:GetAttribute("MaxHealth") or obj:GetAttribute("MaxHP") or "?"
-                    local text = "DOMAIN [" .. dist .. "m]\nHP: " .. tostring(math.floor(hp)) .. "/" .. tostring(maxhp)
-                    local bb = createESPBillboard(obj, text, Color3.fromRGB(255, 50, 200))
-                    table.insert(ESPObjects.Domains, bb)
-                end
-            end
-        end
-    end
-
-    for _, obj in pairs(Workspace:GetDescendants()) do
-        if (obj:IsA("IntValue") or obj:IsA("NumberValue")) and obj.Name:lower():find("health") then
-            local parent = obj.Parent
-            if parent and parent.Name:lower():find("domain") then
-                local part = parent:FindFirstChildWhichIsA("BasePart")
-                if part then
-                    local dist = getDistance(part)
-                    local text = "DOMAIN [" .. dist .. "m]\nHP: " .. tostring(obj.Value)
-                    local bb = createESPBillboard(part, text, Color3.fromRGB(255, 50, 200))
-                    table.insert(ESPObjects.Domains, bb)
-                end
-            end
+        if obj.Name:lower():find("domain") and obj:IsA("BasePart") then
+            local hp = obj:GetAttribute("Health") or 100
+            local dist = getDistance(obj)
+            local text = "DOMAIN [" .. dist .. "m]\nHP: " .. tostring(math.floor(hp))
+            local bb = createESPBillboard(obj, text, Color3.fromRGB(255, 50, 200))
+            table.insert(ESPObjects.Domains, bb)
         end
     end
 end
 
---------------------------------------------------------------
--- 9) AUTO BLOCK
---------------------------------------------------------------
 local function setupAutoBlock()
-    local blockRemote = findRemote("block") or findRemote("guard") or findRemote("defend")
-
-    if blockRemote then
-        if blockRemote:IsA("RemoteEvent") then
-            blockRemote:FireServer(true)
-            blockRemote:FireServer("Block", true)
-        end
+    local blockRemote = findRemote("block") or findRemote("guard")
+    if blockRemote and blockRemote:IsA("RemoteEvent") then
+        blockRemote:FireServer(true)
     end
-
-    local char = getChar()
-    if char then
-        for _, v in pairs(char:GetDescendants()) do
-            if v:IsA("BoolValue") and (v.Name:lower():find("block") or v.Name:lower():find("guard")) then
-                v.Value = true
-            end
-        end
-    end
+    local vim = game:GetService("VirtualInputManager")
+    if vim then pcall(function() vim:SendKeyEvent(true, Enum.KeyCode.F, false, game) end) end
 end
 
 local function stopAutoBlock()
-    local char = getChar()
-    if char then
-        for _, v in pairs(char:GetDescendants()) do
-            if v:IsA("BoolValue") and (v.Name:lower():find("block") or v.Name:lower():find("guard")) then
-                v.Value = false
-            end
-        end
-    end
+    local vim = game:GetService("VirtualInputManager")
+    if vim then pcall(function() vim:SendKeyEvent(false, Enum.KeyCode.F, false, game) end) end
 end
 
 --------------------------------------------------------------
--- MAIN LOOP
+-- MAIN ENGINE LOOP
 --------------------------------------------------------------
 local lastBlockState = false
 local voteBody = nil
 
 Connections.Main = RunService.Heartbeat:Connect(function()
-    if Toggles.DefenseAttorneyQTE then
-        pcall(setupDefenseAttorneyQTE)
-    end
-
-    if Toggles.NanamiAutoRatio then
-        pcall(setupNanamiAutoRatio)
-    end
-
-    if Toggles.TodoAutoPerfectSwap then
-        pcall(setupTodoAutoSwap)
-    end
-
-    if Toggles.CharaAutoQTE then
-        pcall(setupCharaAutoQTE)
-    end
-
+    if Toggles.DefenseAttorneyQTE then pcall(setupDefenseAttorneyQTE) end
+    if Toggles.NanamiAutoRatio then pcall(setupNanamiAutoRatio) end
+    if Toggles.TodoAutoPerfectSwap then pcall(setupTodoAutoSwap) end
+    if Toggles.CharaAutoQTE then pcall(setupCharaAutoQTE) end
+    
     if Toggles.HiromiVoteTracker then
-        if not voteBody then
-            voteBody = setupHiromiVoteTracker()
-        end
+        if not voteBody then voteBody = setupHiromiVoteTracker() end
         pcall(updateHiromiVotes)
         if HiromiVoteGui then HiromiVoteGui.Visible = true end
     else
@@ -687,24 +565,25 @@ end)
 
 task.spawn(function()
     while task.wait(1) do
-        if Toggles.ItemsESP then
-            pcall(updateItemsESP)
-        else
-            clearESP("Items")
-        end
-
-        if Toggles.DummyESP then
-            pcall(updateDummyESP)
-        else
-            clearESP("Dummies")
-        end
-
-        if Toggles.DomainHealthESP then
-            pcall(updateDomainHealthESP)
-        else
-            clearESP("Domains")
-        end
+        if Toggles.ItemsESP then pcall(updateItemsESP) else clearESP("Items") end
+        if Toggles.DummyESP then pcall(updateDummyESP) else clearESP("Dummies") end
+        if Toggles.DomainHealthESP then pcall(updateDomainHealthESP) else clearESP("Domains") end
     end
 end)
 
-print("[JJS] Studio-compatible menu loaded. Press F1 to toggle menu.")
+-- Registered clean engine routine
+local function cleanup()
+    for _, conn in pairs(Connections) do if conn then conn:Disconnect() end end
+    clearESP("Items")
+    clearESP("Dummies")
+    clearESP("Domains")
+    if HiromiVoteGui then HiromiVoteGui:Destroy() end
+    ScreenGui:Destroy()
+end
+
+pcall(function()
+    local env = getgenv()
+    if env then env.__jjs_cleanup = cleanup end
+end)
+
+print("[JJS] Fixed UI elements loaded directly. Press F1 to toggle.")
