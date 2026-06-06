@@ -71,18 +71,51 @@ end
 --------------------------------------------------------------
 -- GUI
 --------------------------------------------------------------
+-- cleanup old instance if re-executing
+pcall(function()
+    if getgenv and getgenv().__jjs_cleanup then
+        getgenv().__jjs_cleanup()
+    end
+end)
+
+-- destroy any leftover gui
+for _, g in pairs(LP:WaitForChild("PlayerGui"):GetChildren()) do
+    if g.Name == "JJS_Menu" then g:Destroy() end
+end
+pcall(function()
+    for _, g in pairs(game:GetService("CoreGui"):GetChildren()) do
+        if g.Name == "JJS_Menu" then g:Destroy() end
+    end
+end)
+
 local ScreenGui = Instance.new("ScreenGui")
 ScreenGui.Name = "JJS_Menu"
 ScreenGui.ResetOnSpawn = false
 ScreenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
 
-if syn and syn.protect_gui then
-    syn.protect_gui(ScreenGui)
-    ScreenGui.Parent = game:GetService("CoreGui")
-elseif gethui then
-    ScreenGui.Parent = gethui()
-else
-    ScreenGui.Parent = game:GetService("CoreGui")
+-- parent gui: try CoreGui first, fall back to PlayerGui
+local guiParented = false
+if typeof(syn) == "table" and syn.protect_gui then
+    pcall(function()
+        syn.protect_gui(ScreenGui)
+        ScreenGui.Parent = game:GetService("CoreGui")
+        guiParented = true
+    end)
+end
+if not guiParented and typeof(gethui) == "function" then
+    pcall(function()
+        ScreenGui.Parent = gethui()
+        guiParented = true
+    end)
+end
+if not guiParented then
+    pcall(function()
+        ScreenGui.Parent = game:GetService("CoreGui")
+        guiParented = true
+    end)
+end
+if not guiParented then
+    ScreenGui.Parent = LP:WaitForChild("PlayerGui")
 end
 
 -- Main Frame
@@ -719,6 +752,10 @@ local function cleanup()
 end
 
 -- store cleanup ref
-getgenv().__jjs_cleanup = cleanup
+pcall(function()
+    if getgenv then
+        getgenv().__jjs_cleanup = cleanup
+    end
+end)
 
 print("[JJS] Script loaded. Press F1 to toggle menu.")
