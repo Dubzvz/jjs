@@ -1,0 +1,266 @@
+--[[
+    JJS (Jujutsu Shenanigans) Script - Native Matcha Edition
+    Uses Matcha Drawing API & Environment functions to bypass Roblox API limitations.
+    Toggle Menu: F1
+]]
+
+-- Environment Safety Check & Recovery
+local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Workspace = game:GetService("Workspace")
+local Players = game:GetService("Players")
+local LP = Players.LocalPlayer
+
+-- State
+local MenuVisible = true
+local Toggles = {
+    DefenseAttorneyQTE = false,
+    NanamiAutoRatio = false,
+    TodoAutoPerfectSwap = false,
+    CharaAutoQTE = false,
+    HiromiVoteTracker = false,
+    ItemsESP = false,
+    DummyESP = false,
+    DomainHealthESP = false,
+    AutoBlock = false,
+}
+
+local DrawingObjects = {}
+local ActiveESP = {}
+
+--------------------------------------------------------------
+-- MATCHA DRAWING WRAPPERS
+--------------------------------------------------------------
+local function createRenderObject(type, properties)
+    local obj = Drawing.new(type)
+    if properties then
+        for prop, val in pairs(properties) do
+            pcall(function() obj[prop] = val end)
+        end
+    end
+    table.insert(DrawingObjects, obj)
+    return obj
+end
+
+-- Render Background Menu Panel
+local MenuBg = createRenderObject("Square", {
+    Size = Vector2.new(280, 380),
+    Position = Vector2.new(100, 100),
+    Filled = true,
+    Color = Color3.fromRGB(18, 18, 24),
+    Visible = true
+})
+
+local MenuTitle = createRenderObject("Text", {
+    Text = "JJS Script | Matcha Menu (F1)",
+    Position = Vector2.new(110, 110),
+    Size = 16,
+    Color = Color3.fromRGB(200, 140, 255),
+    Center = false,
+    Outline = true,
+    Visible = true
+})
+
+-- Generate Custom Clickable Text Toggles
+local featureList = {
+    { key = "DefenseAttorneyQTE", label = "Defense Attorney QTE" },
+    { key = "NanamiAutoRatio", label = "Nanami Auto Ratio" },
+    { key = "TodoAutoPerfectSwap", label = "Todo Auto Perfect Swap" },
+    { key = "CharaAutoQTE", label = "Chara Auto QTE" },
+    { key = "HiromiVoteTracker", label = "Hiromi Vote Tracker" },
+    { key = "ItemsESP", label = "Items ESP" },
+    { key = "DummyESP", label = "Dummy ESP" },
+    { key = "DomainHealthESP", label = "Domain Health ESP" },
+    { key = "AutoBlock", label = "Auto Block" },
+}
+
+local UIButtons = {}
+for i, feat in ipairs(featureList) do
+    local textObj = createRenderObject("Text", {
+        Text = "[OFF] " .. feat.label,
+        Position = Vector2.new(115, 140 + (i * 24)),
+        Size = 14,
+        Color = Color3.fromRGB(180, 180, 180),
+        Center = false,
+        Outline = true,
+        Visible = true
+    })
+    UIButtons[feat.key] = textObj
+end
+
+-- Toggle visibility function
+local function setMenuVisibility(state)
+    MenuBg.Visible = state
+    MenuTitle.Visible = state
+    for _, btn in pairs(UIButtons) do
+        btn.Visible = state
+    end
+end
+
+--------------------------------------------------------------
+-- INPUT HANDLERS (Clicking & Menu Toggle)
+--------------------------------------------------------------
+-- F1 Toggle Hook
+UserInputService.InputBegan:Connect(function(input, gpe)
+    if gpe then return end
+    if input.KeyCode == Enum.KeyCode.F1 then
+        MenuVisible = not MenuVisible
+        setMenuVisibility(MenuVisible)
+    end
+end)
+
+-- Click Detection logic via Mouse Tracking
+UserInputService.InputBegan:Connect(function(input)
+    if not MenuVisible then return end
+    if input.UserInputType == Enum.UserInputType.MouseButton1 then
+        local mousePos = UserInputService:GetMouseLocation()
+        
+        -- Loop through layout configuration bounds
+        for i, feat in ipairs(featureList) do
+            local yPos = 140 + (i * 24)
+            -- Simple bounding box matching button area
+            if mousePos.X >= 115 and mousePos.X <= 350 and mousePos.Y >= yPos and mousePos.Y <= (yPos + 20) then
+                Toggles[feat.key] = not Toggles[feat.key]
+                
+                -- Update Text UI State cleanly
+                if Toggles[feat.key] then
+                    UIButtons[feat.key].Text = "[ON]  " .. feat.label
+                    UIButtons[feat.key].Color = Color3.fromRGB(140, 255, 140)
+                else
+                    UIButtons[feat.key].Text = "[OFF] " .. feat.label
+                    UIButtons[feat.key].Color = Color3.fromRGB(180, 180, 180)
+                end
+                break
+            end
+        end
+    end
+end)
+
+--------------------------------------------------------------
+-- UTILITIES & MATCHA REMOTES SCANNER
+--------------------------------------------------------------
+local function getHRP()
+    local c = LP.Character
+    return c and c:FindFirstChild("HumanoidRootPart")
+end
+
+local function findRemote(name)
+    for _, v in pairs(ReplicatedStorage:GetDescendants()) do
+        if v:IsA("RemoteEvent") and v.Name:lower():find(name:lower()) then return v end
+    end
+    return nil
+end
+
+local function clearESP()
+    for _, drawObj in pairs(ActiveESP) do
+        pcall(function() drawObj:Remove() end)
+    end
+    ActiveESP = {}
+end
+
+--------------------------------------------------------------
+-- GAME MECHANICS CORES
+--------------------------------------------------------------
+local function runQTEAutomation()
+    local pg = LP:FindFirstChild("PlayerGui")
+    if not pg then return end
+    for _, v in pairs(pg:GetDescendants()) do
+        if v:IsA("TextButton") or v:IsA("ImageButton") then
+            local name = v.Name:lower()
+            if name:find("qte") or name:find("hit") or name:find("prompt") or name:find("attorney") then
+                -- Fallback to input simulation if firesignal is absent
+                if v.Visible then
+                    local remote = findRemote("qte") or findRemote("attorney")
+                    if remote then remote:FireServer("Success", true) end
+                end
+            end
+        end
+    end
+end
+
+local function runRatioAutomation()
+    local remote = findRemote("ratio") or findRemote("nanami")
+    if remote then remote:FireServer("Ratio", true) end
+end
+
+local function runSwapAutomation()
+    local remote = findRemote("swap") or findRemote("todo")
+    if remote then remote:FireServer("PerfectSwap", true) end
+end
+
+local function handleAutoBlock()
+    local remote = findRemote("block") or findRemote("guard")
+    if remote then remote:FireServer(true) end
+    -- Fallback input native execution
+    if typeof(keypress) == "function" then keypress(0x46) end -- 0x46 is 'F' Key
+end
+
+local function handleStopBlock()
+    if typeof(keyrelease) == "function" then keyrelease(0x46) end
+end
+
+--------------------------------------------------------------
+-- MAIN RENDERING LOOP (ESP & Tracking)
+--------------------------------------------------------------
+local lastBlockState = false
+
+RunService.Heartbeat:Connect(function()
+    -- Run Automation scripts safely
+    if Toggles.DefenseAttorneyQTE or Toggles.CharaAutoQTE then pcall(runQTEAutomation) end
+    if Toggles.NanamiAutoRatio then pcall(runRatioAutomation) end
+    if Toggles.TodoAutoPerfectSwap then pcall(runSwapAutomation) end
+    
+    if Toggles.AutoBlock then
+        pcall(handleAutoBlock)
+        lastBlockState = true
+    elseif lastBlockState then
+        pcall(handleStopBlock)
+        lastBlockState = false
+    end
+
+    -- ESP Refresh Frame Routine
+    clearESP()
+    local myHrp = getHRP()
+
+    for _, obj in pairs(Workspace:GetDescendants()) do
+        if not obj:IsA("BasePart") then continue end
+
+        local isItem = Toggles.ItemsESP and (obj.Parent:IsA("Tool") or obj.Name:lower():find("pickup"))
+        local isDummy = Toggles.DummyESP and obj.Name == "HumanoidRootPart" and obj.Parent.Name:lower():find("dummy")
+        local isDomain = Toggles.DomainHealthESP and obj.Name:lower():find("domain")
+
+        if isItem or isDummy or isDomain then
+            -- Match native Matcha positional function
+            local screenPos, onScreen = WorldToScreen(obj.Position)
+            if onScreen then
+                local dist = myHrp and math.floor((myHrp.Position - obj.Position).Magnitude) or 0
+                local labelText = obj.Parent.Name .. " [" .. dist .. "m]"
+                local drawColor = Color3.fromRGB(0, 220, 255)
+
+                if isDummy then 
+                    drawColor = Color3.fromRGB(255, 100, 100) 
+                elseif isDomain then 
+                    drawColor = Color3.fromRGB(255, 50, 200) 
+                end
+
+                local espLabel = Drawing.new("Text")
+                espLabel.Text = labelText
+                espLabel.Position = screenPos
+                espLabel.Size = 14
+                espLabel.Color = drawColor
+                espLabel.Center = true
+                espLabel.Outline = true
+                espLabel.Visible = true
+
+                table.insert(ActiveESP, espLabel)
+            end
+        end
+    end
+end)
+
+if typeof(notify) == "function" then
+    notify("Press F1 to open/close menu", "JJS Loaded Successfully", 5)
+else
+    print("[JJS] Loaded! Press F1 to toggle UI overlays.")
+end
