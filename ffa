@@ -1,0 +1,398 @@
+--[[
+    JJS (Jujutsu Shenanigans) Script - Ultimate Matcha Edition
+    
+    Controls:
+      - F1: Toggle Menu UI Visibility
+      - Up / Down Arrow Keys: Navigate through the features list
+      - Enter Key: Toggle Selected Feature [ON / OFF]
+      - Left / Right Arrow Keys: Move the entire menu horizontally across the screen
+]]
+
+-- Initialize Matcha External Input Processing Environment
+if typeof(setrobloxinput) == "function" then
+    setrobloxinput(true)
+end
+
+-- Environment Hierarchy Recovery
+local RunService = game:GetService("RunService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Workspace = game:GetService("Workspace")
+local Players = game:GetService("Players")
+local LP = Players.LocalPlayer
+
+-- Global Drawing Environment Handling
+local SafeDrawing = nil
+if type(Drawing) == "table" and Drawing.new then
+    SafeDrawing = Drawing
+elseif type(_G.Drawing) == "table" and _G.Drawing.new then
+    SafeDrawing = _G.Drawing
+else
+    pcall(function()
+        if typeof(getgenv) == "function" and type(getgenv().Drawing) == "table" then
+            SafeDrawing = getgenv().Drawing
+        end
+    end)
+end
+
+if not SafeDrawing then
+    SafeDrawing = {
+        new = function() 
+            return { Remove = function() end, Destroy = function() end, Visible = false, Position = Vector2.new(0,0), Size = Vector2.new(0,0), Text = "" } 
+        end
+    }
+end
+
+-- UI Engine Configuration & Positioning State
+local MenuVisible = true
+local ActiveIndex = 1
+local MenuX = 60
+local MenuY = 120
+
+local Toggles = {
+    DefenseAttorneyQTE = false,
+    NanamiAutoRatio = false,
+    TodoAutoPerfectSwap = false,
+    CharaAutoQTE = false,
+    HiromiVoteTracker = false,
+    ItemsESP = false,
+    DummyESP = false,
+    DomainHealthESP = false,
+    AutoBlock = false,
+}
+
+local DrawingObjects = {}
+local ActiveESP = {}
+local CachedTargets = {}
+
+--------------------------------------------------------------
+-- UI RENDER LAYER WRAPPERS
+--------------------------------------------------------------
+local function createRenderObject(type, properties)
+    local obj = SafeDrawing.new(type)
+    if properties then
+        for prop, val in pairs(properties) do
+            pcall(function() obj[prop] = val end)
+        end
+    end
+    table.insert(DrawingObjects, obj)
+    return obj
+end
+
+-- Base Dark Glass Frame Panel
+local MenuBg = createRenderObject("Square", {
+    Size = Vector2.new(330, 275),
+    Position = Vector2.new(MenuX, MenuY),
+    Filled = true,
+    Color = Color3.fromRGB(15, 15, 22),
+    Visible = true
+})
+
+-- Header Divider Line
+local MenuLine = createRenderObject("Square", {
+    Size = Vector2.new(310, 2),
+    Position = Vector2.new(MenuX + 10, MenuY + 32),
+    Filled = true,
+    Color = Color3.fromRGB(180, 120, 255),
+    Visible = true
+})
+
+local MenuTitle = createRenderObject("Text", {
+    Text = "JUJUTSU SHENANIGANS — MATCHA",
+    Position = Vector2.new(MenuX + 15, MenuY + 12),
+    Size = 13,
+    Color = Color3.fromRGB(200, 150, 255),
+    Center = false,
+    Outline = true,
+    Visible = true
+})
+
+local featureList = {
+    { key = "DefenseAttorneyQTE", label = "Defense Attorney QTE" },
+    { key = "NanamiAutoRatio", label = "Nanami Auto Ratio" },
+    { key = "TodoAutoPerfectSwap", label = "Todo Auto Perfect Swap" },
+    { key = "CharaAutoQTE", label = "Chara Auto QTE" },
+    { key = "HiromiVoteTracker", label = "Hiromi Vote Tracker" },
+    { key = "ItemsESP", label = "Items ESP" },
+    { key = "DummyESP", label = "Dummy ESP" },
+    { key = "DomainHealthESP", label = "Domain Health ESP" },
+    { key = "AutoBlock", label = "Auto Block" },
+}
+
+local UIButtons = {}
+for i, feat in ipairs(featureList) do
+    local textObj = createRenderObject("Text", {
+        Text = "   [OFF] " .. feat.label,
+        Position = Vector2.new(MenuX + 15, MenuY + 28 + (i * 22)),
+        Size = 13,
+        Color = Color3.fromRGB(140, 140, 145),
+        Center = false,
+        Outline = true,
+        Visible = true
+    })
+    UIButtons[feat.key] = textObj
+end
+
+-- Force Reposition Updates Dynamically
+local function updateMenuPosition()
+    MenuBg.Position = Vector2.new(MenuX, MenuY)
+    MenuLine.Position = Vector2.new(MenuX + 10, MenuY + 32)
+    MenuTitle.Position = Vector2.new(MenuX + 15, MenuY + 12)
+    for i, feat in ipairs(featureList) do
+        if UIButtons[feat.key] then
+            UIButtons[feat.key].Position = Vector2.new(MenuX + 15, MenuY + 28 + (i * 22))
+        end
+    end
+end
+
+local function updateVisualLines()
+    for i, feat in ipairs(featureList) do
+        local prefix = (i == ActiveIndex) and "►  " or "   "
+        local status = Toggles[feat.key] and "[ON]  " or "[OFF] "
+        
+        if UIButtons[feat.key] then
+            UIButtons[feat.key].Text = prefix .. status .. feat.label
+            
+            if i == ActiveIndex then
+                UIButtons[feat.key].Color = Color3.fromRGB(255, 215, 0) -- Bold gold selector focus
+            elseif Toggles[feat.key] then
+                UIButtons[feat.key].Color = Color3.fromRGB(110, 255, 110) -- Bright Neon Green
+            else
+                UIButtons[feat.key].Color = Color3.fromRGB(140, 140, 145) -- Muted Gray
+            end
+        end
+    end
+end
+
+local function setMenuVisibility(state)
+    MenuBg.Visible = state
+    MenuLine.Visible = state
+    MenuTitle.Visible = state
+    for _, btn in pairs(UIButtons) do
+        btn.Visible = state
+    end
+end
+
+--------------------------------------------------------------
+-- NATIVE ARROW-KEY & INTERACTIVE POLLING LAYER
+--------------------------------------------------------------
+local f1Down = false
+local upDown = false
+local downDown = false
+local enterDown = false
+
+task.spawn(function()
+    while true do
+        task.wait(0.04)
+        
+        local canInteract = true
+        if typeof(isrbxactive) == "function" then
+            canInteract = isrbxactive()
+        end
+
+        if canInteract and typeof(iskeypressed) == "function" then
+            
+            -- F1 Toggle Interface Visibility (0x70)
+            if iskeypressed(0x70) then
+                if not f1Down then
+                    MenuVisible = not MenuVisible
+                    setMenuVisibility(MenuVisible)
+                    f1Down = true
+                end
+            else
+                f1Down = false
+            end
+
+            if MenuVisible then
+                -- Move Entire UI Left (Left Arrow Key: 0x25)
+                if iskeypressed(0x25) then
+                    MenuX = math.max(0, MenuX - 8)
+                    updateMenuPosition()
+                end
+
+                -- Move Entire UI Right (Right Arrow Key: 0x27)
+                if iskeypressed(0x27) then
+                    MenuX = MenuX + 8
+                    updateMenuPosition()
+                end
+
+                -- Move Selection Up (Up Arrow Key: 0x26)
+                if iskeypressed(0x26) then
+                    if not upDown then
+                        ActiveIndex = ActiveIndex - 1
+                        if ActiveIndex < 1 then ActiveIndex = #featureList end
+                        updateVisualLines()
+                        upDown = true
+                    end
+                else
+                    upDown = false
+                end
+
+                -- Move Selection Down (Down Arrow Key: 0x28)
+                if iskeypressed(0x28) then
+                    if not downDown then
+                        ActiveIndex = ActiveIndex + 1
+                        if ActiveIndex > #featureList then ActiveIndex = 1 end
+                        updateVisualLines()
+                        downDown = true
+                    end
+                else
+                    downDown = false
+                end
+
+                -- Toggle Feature State (Enter/Return Key: 0x0D)
+                if iskeypressed(0x0D) then
+                    if not enterDown then
+                        local activeFeature = featureList[ActiveIndex]
+                        if activeFeature then
+                            Toggles[activeFeature.key] = not Toggles[activeFeature.key]
+                            updateVisualLines()
+                        end
+                        enterDown = true
+                    end
+                else
+                    enterDown = false
+                end
+            end
+            
+        end
+    end
+end)
+
+--------------------------------------------------------------
+-- GAME ENVIRONMENT SCRAPER & AUTOMATIONS
+--------------------------------------------------------------
+local function getHRP()
+    local c = LP.Character
+    return c and c:FindFirstChild("HumanoidRootPart")
+end
+
+local function findRemote(name)
+    for _, v in pairs(ReplicatedStorage:GetDescendants()) do
+        if v:IsA("RemoteEvent") and v.Name:lower():find(name:lower()) then return v end
+    end
+    return nil
+end
+
+local function runQTEAutomation()
+    local pg = LP:FindFirstChild("PlayerGui")
+    if not pg then return end
+    for _, v in pairs(pg:GetDescendants()) do
+        if v:IsA("TextButton") or v:IsA("ImageButton") then
+            local name = v.Name:lower()
+            if name:find("qte") or name:find("hit") or name:find("prompt") or name:find("attorney") then
+                if v.Visible then
+                    local remote = findRemote("qte") or findRemote("attorney")
+                    if remote then remote:FireServer("Success", true) end
+                end
+            end
+        end
+    end
+end
+
+local function runRatioAutomation()
+    local remote = findRemote("ratio") or findRemote("nanami")
+    if remote then remote:FireServer("Ratio", true) end
+end
+
+local function runSwapAutomation()
+    local remote = findRemote("swap") or findRemote("todo")
+    if remote then remote:FireServer("PerfectSwap", true) end
+end
+
+local function handleAutoBlock()
+    local remote = findRemote("block") or findRemote("guard")
+    if remote then remote:FireServer(true) end
+end
+
+--------------------------------------------------------------
+-- BACKGROUND DEPTH CACHING LOOP
+--------------------------------------------------------------
+task.spawn(function()
+    while true do
+        local tempCache = {}
+        local allObjects = Workspace:GetDescendants()
+        
+        for _, obj in pairs(allObjects) do
+            if obj:IsA("Model") or obj:IsA("BasePart") then
+                local nameLower = obj.Name:lower()
+                local parentNameLower = obj.Parent and obj.Parent.Name:lower() or ""
+                
+                local isDummy = nameLower:find("dummy") or parentNameLower:find("dummy")
+                local isItem = obj:IsA("Tool") or nameLower:find("pickup") or nameLower:find("cursed")
+                local isDomain = nameLower:find("domain")
+                
+                if isDummy or isItem or isDomain then
+                    local hrp = obj:FindFirstChild("HumanoidRootPart") or obj:FindFirstChildWhichIsA("BasePart") or (obj:IsA("BasePart") and obj)
+                    if hrp then
+                        table.insert(tempCache, {
+                            instance = obj,
+                            hrp = hrp,
+                            type = isDummy and "dummy" or (isDomain and "domain" or "item")
+                        })
+                    end
+                end
+            end
+        end
+        
+        CachedTargets = tempCache
+        task.wait(1.5)
+    end
+end)
+
+--------------------------------------------------------------
+-- STABLE GRAPHICS RENDERING SYSTEM
+--------------------------------------------------------------
+local function createESPLabel(text, position, color)
+    local espLabel = SafeDrawing.new("Text")
+    espLabel.Text = text
+    espLabel.Position = position
+    espLabel.Size = 13
+    espLabel.Color = color
+    espLabel.Center = true
+    espLabel.Outline = true
+    espLabel.Visible = true
+    table.insert(ActiveESP, espLabel)
+end
+
+RunService.RenderStepped:Connect(function()
+    for _, drawObj in pairs(ActiveESP) do
+        pcall(function() drawObj:Remove() end)
+    end
+    ActiveESP = {}
+
+    if Toggles.DefenseAttorneyQTE or Toggles.CharaAutoQTE then pcall(runQTEAutomation) end
+    if Toggles.NanamiAutoRatio then pcall(runRatioAutomation) end
+    if Toggles.TodoAutoPerfectSwap then pcall(runSwapAutomation) end
+    if Toggles.AutoBlock then pcall(handleAutoBlock) end
+
+    local myHrp = getHRP()
+
+    for _, cache in pairs(CachedTargets) do
+        if not cache.instance or not cache.instance.Parent then continue end
+        if cache.instance == LP.Character or cache.instance.Parent == LP.Character then continue end
+
+        local renderEnabled = false
+        if cache.type == "dummy" and Toggles.DummyESP then renderEnabled = true
+        elseif cache.type == "item" and Toggles.ItemsESP then renderEnabled = true
+        elseif cache.type == "domain" and Toggles.DomainHealthESP then renderEnabled = true end
+
+        if renderEnabled then
+            local screenPos, onScreen = WorldToScreen(cache.hrp.Position)
+            if onScreen then
+                local dist = myHrp and math.floor((myHrp.Position - cache.hrp.Position).Magnitude) or 0
+                local labelText = cache.instance.Name .. " [" .. dist .. "m]"
+                local drawColor = Color3.fromRGB(0, 220, 255)
+
+                if cache.type == "dummy" then 
+                    drawColor = Color3.fromRGB(255, 100, 100) 
+                elseif cache.type == "domain" then 
+                    drawColor = Color3.fromRGB(255, 50, 200) 
+                end
+
+                createESPLabel(labelText, screenPos, drawColor)
+            end
+        end
+    end
+end)
+
+updateVisualLines()
