@@ -1,4 +1,4 @@
---[[
+eee--[[
     JJS (Jujutsu Shenanigans) Script - Executor Fixed
     Features: Defense Attorney QTE, Nanami Auto Ratio, Todo Auto Perfect Swap,
               Chara Auto QTE, Hiromi Vote Tracker, Items ESP, Dummy ESP,
