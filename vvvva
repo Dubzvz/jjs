@@ -416,17 +416,35 @@ local function reset_vote_sig() State.HiromiVotes.lastSeenSig = "" end
 -- ============================================================
 -- ESP HELPERS
 -- ============================================================
-local function classify(inst)
-    local ok, fullname = pcall(function() return inst:GetFullName() end)
-    if not ok or not fullname then fullname = inst.Name or "" end
+local function name_matches_any(name)
     for fk, def in pairs(ESPDefs) do
-        if Features[fk] and contains_any(fullname, def.match) then
+        if Features[fk] and contains_any(name, def.match) then
             return fk, def
         end
     end
     return nil
 end
 
+local function classify(inst)
+    -- Match on Name only (full path falsely inherits keywords from ancestors).
+    local fk, def = name_matches_any(inst.Name or "")
+    if not fk then return nil end
+
+    -- If we're a BasePart and any ancestor Model already classifies, skip —
+    -- the Model draws one clean box instead of one per child part.
+    if inst:IsA("BasePart") then
+        local p = inst.Parent
+        while p and p ~= Workspace do
+            if p:IsA("Model") then
+                local pfk = name_matches_any(p.Name or "")
+                if pfk then return nil end
+            end
+            p = p.Parent
+        end
+    end
+
+    return fk, def
+end
 local function find_humanoid_or_health(inst)
     local ok, h = pcall(function() return inst:FindFirstChildWhichIsA("Humanoid") end)
     if ok and h then return h.Health, h.MaxHealth end
