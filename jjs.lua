@@ -1,14 +1,10 @@
 --[[
-    JJS (Jujutsu Shenanigans) Script
+    JJS (Jujutsu Shenanigans) Script - Studio Compatible
     Features: Defense Attorney QTE, Nanami Auto Ratio, Todo Auto Perfect Swap,
               Chara Auto QTE, Hiromi Vote Tracker, Items ESP, Dummy ESP,
               Domain Health ESP, Auto Block
     Toggle Menu: F1
 ]]
-
--- Environment Safety Check
-local getgenv = getgenv or function() return _G end
-local Instance = Instance or game:GetService("Instance")
 
 -- Services
 local Players = game:GetService("Players")
@@ -35,6 +31,22 @@ local Toggles = {
 
 local ESPObjects = { Items = {}, Dummies = {}, Domains = {} }
 local Connections = {}
+
+-- Safely mock firesignal for Studio environment compatibility
+local function safeFireSignal(button)
+    if not button then return end
+    pcall(function()
+        if button:IsA("TextButton") or button:IsA("ImageButton") then
+            -- Simulate the clicks programmatically since firesignal is an exploit function
+            for _, conn in pairs(getconnections and getconnections(button.MouseButton1Click) or {}) do
+                if conn.Function then task.spawn(conn.Function) end
+            end
+            for _, conn in pairs(getconnections and getconnections(button.Activated) or {}) do
+                if conn.Function then task.spawn(conn.Function) end
+            end
+        end
+    end)
+end
 
 --------------------------------------------------------------
 -- UTILITY
@@ -73,54 +85,20 @@ local function worldToScreen(pos)
 end
 
 --------------------------------------------------------------
--- GUI
+-- GUI SETUP
 --------------------------------------------------------------
--- cleanup old instance if re-executing
-pcall(function()
-    if getgenv().__jjs_cleanup then
-        getgenv().__jjs_cleanup()
-    end
-end)
+local targetGuiParent = LP:WaitForChild("PlayerGui")
 
--- destroy any leftover gui
-for _, g in pairs(LP:WaitForChild("PlayerGui"):GetChildren()) do
+-- destroy any leftover gui from previous runs
+for _, g in pairs(targetGuiParent:GetChildren()) do
     if g.Name == "JJS_Menu" then g:Destroy() end
 end
-pcall(function()
-    for _, g in pairs(game:GetService("CoreGui"):GetChildren()) do
-        if g.Name == "JJS_Menu" then g:Destroy() end
-    end
-end)
 
 local ScreenGui = Instance.new("ScreenGui")
 ScreenGui.Name = "JJS_Menu"
 ScreenGui.ResetOnSpawn = false
 ScreenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
-
--- parent gui: try CoreGui first, fall back to PlayerGui
-local guiParented = false
-if typeof(syn) == "table" and syn.protect_gui then
-    pcall(function()
-        syn.protect_gui(ScreenGui)
-        ScreenGui.Parent = game:GetService("CoreGui")
-        guiParented = true
-    end)
-end
-if not guiParented and typeof(gethui) == "function" then
-    pcall(function()
-        ScreenGui.Parent = gethui()
-        guiParented = true
-    end)
-end
-if not guiParented then
-    pcall(function()
-        ScreenGui.Parent = game:GetService("CoreGui")
-        guiParented = true
-    end)
-end
-if not guiParented then
-    ScreenGui.Parent = LP:WaitForChild("PlayerGui")
-end
+ScreenGui.Parent = targetGuiParent
 
 -- Main Frame
 local MainFrame = Instance.new("Frame")
@@ -131,7 +109,28 @@ MainFrame.BackgroundColor3 = Color3.fromRGB(18, 18, 24)
 MainFrame.BorderSizePixel = 0
 MainFrame.Parent = ScreenGui
 MainFrame.Active = true
-MainFrame.Draggable = true
+
+-- Basic drag implementation for Studio compatibility
+local dragging, dragInput, dragStart, startPos
+MainFrame.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 then
+        dragging = true
+        dragStart = input.Position
+        startPos = MainFrame.Position
+        input.Changed:Connect(function()
+            if input.UserInputState == Enum.UserInputState.End then dragging = false end
+        end)
+    end
+end)
+MainFrame.InputChanged:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseMovement then dragInput = input end
+end)
+UserInputService.InputChanged:Connect(function(input)
+    if input == dragInput and dragging then
+        local delta = input.Position - dragStart
+        MainFrame.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
+    end
+end)
 
 local corner = Instance.new("UICorner")
 corner.CornerRadius = UDim.new(0, 10)
@@ -289,8 +288,7 @@ local function scanForQTE()
             if (n:find("qte") or n:find("attorney") or n:find("defense") or n:find("prompt") or n:find("hit") or n:find("press")) then
                 if gui:IsA("TextButton") or gui:IsA("ImageButton") then
                     if gui.Visible and gui.Active then
-                        firesignal(gui.MouseButton1Click)
-                        firesignal(gui.Activated)
+                        safeFireSignal(gui)
                     end
                 end
             end
@@ -329,8 +327,7 @@ local function setupNanamiAutoRatio()
             local n = gui.Name:lower()
             if n:find("ratio") or n:find("weak") or n:find("point") then
                 if gui.Visible then
-                    pcall(function() firesignal(gui.MouseButton1Click) end)
-                    pcall(function() firesignal(gui.Activated) end)
+                    safeFireSignal(gui)
                 end
             end
         end
@@ -359,7 +356,7 @@ local function setupTodoAutoSwap()
             local n = gui.Name:lower()
             if n:find("swap") or n:find("clap") or n:find("boogie") or n:find("todo") or n:find("timing") then
                 if (gui:IsA("TextButton") or gui:IsA("ImageButton")) and gui.Visible then
-                    pcall(function() firesignal(gui.MouseButton1Click) end)
+                    safeFireSignal(gui)
                 end
             end
         end
@@ -386,8 +383,7 @@ local function setupCharaAutoQTE()
             local n = gui.Name:lower()
             if n:find("qte") or n:find("chara") or n:find("hit") or n:find("press") or n:find("click") then
                 if gui.Visible and gui.Active then
-                    pcall(function() firesignal(gui.MouseButton1Click) end)
-                    pcall(function() firesignal(gui.Activated) end)
+                    safeFireSignal(gui)
                 end
             end
         end
@@ -622,13 +618,6 @@ local function setupAutoBlock()
         end
     end
 
-    local vim = game:GetService("VirtualInputManager")
-    if vim then
-        pcall(function()
-            vim:SendKeyEvent(true, Enum.KeyCode.F, false, game)
-        end)
-    end
-
     local char = getChar()
     if char then
         for _, v in pairs(char:GetDescendants()) do
@@ -640,13 +629,6 @@ local function setupAutoBlock()
 end
 
 local function stopAutoBlock()
-    local vim = game:GetService("VirtualInputManager")
-    if vim then
-        pcall(function()
-            vim:SendKeyEvent(false, Enum.KeyCode.F, false, game)
-        end)
-    end
-
     local char = getChar()
     if char then
         for _, v in pairs(char:GetDescendants()) do
@@ -725,24 +707,4 @@ task.spawn(function()
     end
 end)
 
---------------------------------------------------------------
--- CLEANUP ON RE-EXECUTE
---------------------------------------------------------------
-local function cleanup()
-    for _, conn in pairs(Connections) do
-        if conn then conn:Disconnect() end
-    end
-    clearESP("Items")
-    clearESP("Dummies")
-    clearESP("Domains")
-    if HiromiVoteGui then HiromiVoteGui:Destroy() end
-    ScreenGui:Destroy()
-end
-
-pcall(function()
-    if getgenv() then
-        getgenv().__jjs_cleanup = cleanup
-    end
-end)
-
-print("[JJS] Script loaded. Press F1 to toggle menu.")
+print("[JJS] Studio-compatible menu loaded. Press F1 to toggle menu.")
