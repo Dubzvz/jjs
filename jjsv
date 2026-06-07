@@ -1,0 +1,681 @@
+--[[
+    jjs
+    
+
+    Controls:
+    - INSERT: show / hide menu
+    - Left click menu rows: toggle ESP
+]]
+
+local CONFIG = {
+    MenuKey = 0x2D,
+    ClickDebounce = 0.20,
+
+    EspScanDelay = 1.00,
+    EspMaxDistance = 3000,
+
+    Colors = {
+        MenuBg = Color3.fromRGB(15, 16, 20),
+        MenuHeader = Color3.fromRGB(23, 25, 31),
+        MenuText = Color3.fromRGB(220, 225, 235),
+        Enabled = Color3.fromRGB(95, 235, 150),
+        Disabled = Color3.fromRGB(95, 100, 115),
+
+        Item = Color3.fromRGB(255, 210, 80),
+        Dummy = Color3.fromRGB(120, 210, 255),
+        Domain = Color3.fromRGB(210, 120, 255),
+    }
+}
+
+if _G.__JJS_MATCHA_CLEANUP then
+    _G.__JJS_MATCHA_CLEANUP()
+end
+
+local game = game
+local Workspace = game:GetService("Workspace")
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local LocalPlayer = Players.LocalPlayer
+
+local MainRenderConnection = nil
+local LastEspScan = 0
+
+local State = {
+    Running = true,
+    MenuVisible = true,
+    LastMenuKey = false,
+    LastClick = false,
+    LastClickTime = 0,
+    HoveredRow = nil,
+
+    Toggles = {
+        ItemsESP = true,
+        DummyESP = true,
+        DomainHealthESP = true,
+    },
+
+    Drawings = {},
+}
+
+local FeatureRows = {
+    { Key = "ItemsESP", Label = "Items ESP", Type = "Items" },
+    { Key = "DummyESP", Label = "Dummy ESP", Type = "Dummies" },
+    { Key = "DomainHealthESP", Label = "Domain Health ESP", Type = "Domains" },
+}
+
+local function now()
+    return os.clock()
+end
+
+local function lowerText(value)
+    if value == nil then
+        return ""
+    end
+    return string.lower(tostring(value))
+end
+
+local function containsAny(text, words)
+    text = lowerText(text)
+    for _, word in pairs(words) do
+        if string.find(text, lowerText(word), 1, true) then
+            return true
+        end
+    end
+    return false
+end
+
+local function makeText(text, x, y, color, size)
+    local obj = Drawing.new("Text")
+    obj.Text = text
+    obj.Position = Vector2.new(x, y)
+    obj.Color = color
+    obj.Transparency = 1
+    obj.Outline = true
+    obj.Center = false
+    obj.Size = size or 15
+    obj.Visible = true
+    obj.ZIndex = 50
+    return obj
+end
+
+local function makeSquare(x, y, w, h, color, filled)
+    local obj = Drawing.new("Square")
+    obj.Position = Vector2.new(x, y)
+    obj.Size = Vector2.new(w, h)
+    obj.Color = color
+    obj.Transparency = 1
+    obj.Filled = filled
+    obj.Visible = true
+    obj.ZIndex = 40
+    return obj
+end
+
+local function addDrawing(obj)
+    State.Drawings[#State.Drawings + 1] = obj
+    return obj
+end
+
+local function getCharacter()
+    if LocalPlayer then
+        return LocalPlayer.Character
+    end
+    return nil
+end
+
+local function getRoot(model)
+    if not model then
+        return nil
+    end
+
+    local primary = model.PrimaryPart
+    if primary then
+        return primary
+    end
+
+    local hrp = model:FindFirstChild("HumanoidRootPart")
+    if hrp then
+        return hrp
+    end
+
+    local torso = model:FindFirstChild("Torso")
+    if torso then
+        return torso
+    end
+
+    local head = model:FindFirstChild("Head")
+    if head then
+        return head
+    end
+
+    return nil
+end
+
+local function getDistance(part)
+    local char = getCharacter()
+    local root = getRoot(char)
+
+    if not root or not part then
+        return 0
+    end
+
+    local dx = root.Position.X - part.Position.X
+    local dy = root.Position.Y - part.Position.Y
+    local dz = root.Position.Z - part.Position.Z
+
+    return math.sqrt((dx * dx) + (dy * dy) + (dz * dz))
+end
+
+local function getHumanoid(model)
+    if not model then
+        return nil
+    end
+    return model:FindFirstChildOfClass("Humanoid")
+end
+
+local function isAliveModel(model)
+    local hum = getHumanoid(model)
+    if hum and hum.Health <= 0 then
+        return false
+    end
+    return true
+end
+
+local ESP = {}
+ESP.__index = ESP
+ESP.WS = Workspace
+
+ESP.Config = {
+    Text = {
+        TextFont = Drawing.Fonts.SystemBold,
+        DefColor = Color3.new(1, 1, 1),
+        DefText = "ESP",
+        ZIndex = 50
+    }
+}
+
+ESP.Act = false
+ESP.CActive = {}
+ESP.RS = nil
+
+function ESP:Render()
+    for address, data in pairs(self.CActive) do
+        if not data or not data.Instance or not data.Instance:IsDescendantOf(self.WS) then
+            self:DeleteESP("M", address)
+        else
+            local ok, pos = pcall(function()
+                return data.Instance.Position
+            end)
+
+            if not ok or not pos then
+                self:DeleteESP("M", address)
+            else
+                local screenPos, onScreen = WorldToScreen(pos)
+
+                if onScreen then
+                    local distance = getDistance(data.Instance)
+
+                    if distance > CONFIG.EspMaxDistance then
+                        data.ESP.Visible = false
+                    else
+                        data.ESP.Visible = true
+                        data.ESP.Position = screenPos
+
+                        if data.BaseText then
+                            data.ESP.Text = data.BaseText .. " [" .. tostring(math.floor(distance)) .. "m]"
+                        end
+                    end
+                else
+                    data.ESP.Visible = false
+                end
+            end
+        end
+    end
+end
+
+function ESP:CreateRenderFlow()
+    if self.Act then
+        return
+    end
+
+    self.Act = true
+
+    self.RS = RunService.RenderStepped:Connect(function()
+        self:Render()
+    end)
+end
+
+function ESP:CreateESP(obj, text, color, espType)
+    if not obj or not obj.Address then
+        return
+    end
+
+    self:CreateRenderFlow()
+
+    if self.CActive[obj.Address] then
+        self:UpdateESP(obj, text, color)
+        return
+    end
+
+    local drawing = Drawing.new("Text")
+    drawing.Outline = true
+    drawing.Center = true
+    drawing.Visible = false
+    drawing.Color = color or self.Config.Text.DefColor
+    drawing.Text = text or self.Config.Text.DefText
+    drawing.Font = self.Config.Text.TextFont
+    drawing.ZIndex = self.Config.Text.ZIndex
+    drawing.Size = 14
+
+    self.CActive[obj.Address] = {
+        Instance = obj,
+        Type = espType or "Default",
+        ESP = drawing,
+        BaseText = text or self.Config.Text.DefText
+    }
+end
+
+function ESP:UpdateESP(linked, text, color)
+    if not linked or not linked.Address then
+        return
+    end
+
+    local data = self.CActive[linked.Address]
+    if not data then
+        return
+    end
+
+    if text then
+        data.BaseText = text
+        data.ESP.Text = text
+    end
+
+    if color then
+        data.ESP.Color = color
+    end
+end
+
+function ESP:DeleteESP(mode, link)
+    mode = lowerText(mode)
+
+    if mode == "m" then
+        local address = link
+
+        if type(link) == "table" and link.Address then
+            address = link.Address
+        end
+
+        local data = self.CActive[address]
+        if not data then
+            return
+        end
+
+        if data.ESP then
+            data.ESP:Remove()
+        end
+
+        self.CActive[address] = nil
+        return
+    end
+
+    if mode == "t" then
+        for address, data in pairs(self.CActive) do
+            if data and data.Type == link then
+                if data.ESP then
+                    data.ESP:Remove()
+                end
+
+                self.CActive[address] = nil
+            end
+        end
+    end
+end
+
+function ESP:End()
+    self.Act = false
+
+    if self.RS then
+        self.RS:Disconnect()
+        self.RS = nil
+    end
+
+    for address, data in pairs(self.CActive) do
+        if data and data.ESP then
+            data.ESP:Remove()
+        end
+        self.CActive[address] = nil
+    end
+
+    self.CActive = {}
+end
+
+_G.EModule = ESP
+
+local function clearEsp()
+    ESP:DeleteESP("t", "Items")
+    ESP:DeleteESP("t", "Dummies")
+    ESP:DeleteESP("t", "Domains")
+end
+
+local function isDummyModel(inst)
+    if not inst or not inst:IsA("Model") then
+        return false
+    end
+
+    local name = lowerText(inst.Name)
+
+    if string.find(name, "dummy", 1, true) or string.find(name, "training", 1, true) or string.find(name, "npc", 1, true) then
+        return getRoot(inst) ~= nil
+    end
+
+    if getHumanoid(inst) and getRoot(inst) then
+        return containsAny(name, { "dummy", "npc", "mob", "enemy", "boss" })
+    end
+
+    return false
+end
+
+local function isItem(inst)
+    if not inst then
+        return false
+    end
+
+    local name = lowerText(inst.Name)
+    local className = lowerText(inst.ClassName)
+
+    if string.find(className, "tool", 1, true) then
+        return true
+    end
+
+    return containsAny(name, { "item", "drop", "weapon", "finger", "scroll", "katana", "sword", "cursed", "object" })
+end
+
+local function isDomainObject(inst)
+    if not inst then
+        return false
+    end
+
+    local name = lowerText(inst.Name)
+    return containsAny(name, { "domain", "barrier", "shrine", "void", "expansion", "health" })
+end
+
+local function findHealthText(inst)
+    local health = nil
+
+    pcall(function()
+        local hum = getHumanoid(inst)
+        if hum then
+            health = math.floor(hum.Health) .. "/" .. math.floor(hum.MaxHealth)
+        end
+    end)
+
+    if health then
+        return health
+    end
+
+    pcall(function()
+        local attr = inst:GetAttribute("Health")
+        local maxAttr = inst:GetAttribute("MaxHealth")
+        if attr then
+            if maxAttr then
+                health = tostring(attr) .. "/" .. tostring(maxAttr)
+            else
+                health = tostring(attr)
+            end
+        end
+    end)
+
+    if health then
+        return health
+    end
+
+    pcall(function()
+        local child = inst:FindFirstChild("Health")
+        if child and child.Value ~= nil then
+            health = tostring(child.Value)
+        end
+    end)
+
+    return health or "?"
+end
+
+local function scanEspTargets()
+    if not State.Toggles.ItemsESP then
+        ESP:DeleteESP("t", "Items")
+    end
+
+    if not State.Toggles.DummyESP then
+        ESP:DeleteESP("t", "Dummies")
+    end
+
+    if not State.Toggles.DomainHealthESP then
+        ESP:DeleteESP("t", "Domains")
+    end
+
+    if not State.Toggles.ItemsESP and not State.Toggles.DummyESP and not State.Toggles.DomainHealthESP then
+        return
+    end
+
+    local descendants = game:GetDescendants()
+
+    for _, inst in pairs(descendants) do
+        if State.Toggles.ItemsESP and isItem(inst) then
+            local part = nil
+
+            if inst:IsA("Model") then
+                part = getRoot(inst)
+            elseif inst:IsA("BasePart") or inst:IsA("MeshPart") then
+                part = inst
+            end
+
+            if part and getDistance(part) <= CONFIG.EspMaxDistance then
+                ESP:CreateESP(part, "[ITEM] " .. inst.Name, CONFIG.Colors.Item, "Items")
+            end
+        end
+
+        if State.Toggles.DummyESP and isDummyModel(inst) and isAliveModel(inst) then
+            local part = getRoot(inst)
+
+            if part and getDistance(part) <= CONFIG.EspMaxDistance then
+                local hum = getHumanoid(inst)
+                local hp = ""
+
+                if hum then
+                    hp = " HP:" .. tostring(math.floor(hum.Health))
+                end
+
+                ESP:CreateESP(part, "[DUMMY] " .. inst.Name .. hp, CONFIG.Colors.Dummy, "Dummies")
+            end
+        end
+
+        if State.Toggles.DomainHealthESP and isDomainObject(inst) then
+            local part = nil
+
+            if inst:IsA("Model") then
+                part = getRoot(inst)
+            elseif inst:IsA("BasePart") or inst:IsA("MeshPart") then
+                part = inst
+            end
+
+            if part and getDistance(part) <= CONFIG.EspMaxDistance then
+                ESP:CreateESP(part, "[DOMAIN] " .. inst.Name .. " HP:" .. findHealthText(inst), CONFIG.Colors.Domain, "Domains")
+            end
+        end
+    end
+end
+
+local function createMenu()
+    local x = 38
+    local y = 105
+    local w = 250
+    local headerH = 38
+    local rowH = 30
+    local footerH = 18
+    local h = headerH + (#FeatureRows * rowH) + footerH + 8
+
+    State.MenuX = x
+    State.MenuY = y
+    State.MenuW = w
+    State.MenuH = h
+
+    local shadow = addDrawing(makeSquare(x + 4, y + 4, w, h, Color3.fromRGB(0, 0, 0), true))
+    shadow.Transparency = 0.35
+
+    local bg = addDrawing(makeSquare(x, y, w, h, CONFIG.Colors.MenuBg, true))
+    bg.Transparency = 0.96
+
+    local top = addDrawing(makeSquare(x, y, w, headerH, CONFIG.Colors.MenuHeader, true))
+    top.Transparency = 1
+
+    local accent = addDrawing(makeSquare(x, y + headerH - 2, w, 2, Color3.fromRGB(85, 135, 255), true))
+    accent.Transparency = 1
+
+    local title = addDrawing(makeText("jjs", x + 14, y + 9, Color3.fromRGB(245, 247, 255), 18))
+    title.Font = Drawing.Fonts.SystemBold
+
+    local hint = addDrawing(makeText("insert", x + w - 54, y + 12, Color3.fromRGB(135, 145, 165), 12))
+    hint.Font = Drawing.Fonts.System
+
+    for i, row in pairs(FeatureRows) do
+        local rowY = y + headerH + ((i - 1) * rowH) + 5
+
+        local hover = addDrawing(makeSquare(x + 8, rowY - 2, w - 16, rowH - 4, Color3.fromRGB(30, 34, 43), true))
+        hover.Transparency = 0.85
+        hover.Visible = false
+
+        local dot = addDrawing(makeSquare(x + 16, rowY + 8, 8, 8, CONFIG.Colors.Disabled, true))
+        dot.Transparency = 1
+
+        local label = addDrawing(makeText(row.Label, x + 34, rowY + 3, CONFIG.Colors.MenuText, 13))
+        label.Font = Drawing.Fonts.System
+
+        row.Hover = hover
+        row.Box = dot
+        row.Text = label
+        row.X = x + 8
+        row.Y = rowY - 2
+        row.W = w - 16
+        row.H = rowH - 4
+    end
+end
+
+local function updateMenu()
+    local mouse = LocalPlayer:GetMouse()
+    local mx = mouse.X
+    local my = mouse.Y
+
+    State.HoveredRow = nil
+
+    for _, obj in pairs(State.Drawings) do
+        obj.Visible = State.MenuVisible
+    end
+
+    if not State.MenuVisible then
+        return
+    end
+
+    for _, row in pairs(FeatureRows) do
+        local hovered = mx >= row.X and mx <= row.X + row.W and my >= row.Y and my <= row.Y + row.H
+
+        row.Hover.Visible = hovered
+
+        if hovered then
+            State.HoveredRow = row
+            row.Text.Color = Color3.fromRGB(255, 255, 255)
+        else
+            row.Text.Color = CONFIG.Colors.MenuText
+        end
+
+        if State.Toggles[row.Key] then
+            row.Box.Color = CONFIG.Colors.Enabled
+        else
+            row.Box.Color = CONFIG.Colors.Disabled
+        end
+    end
+end
+
+local function handleMenuInput()
+    local menuKeyDown = iskeypressed(CONFIG.MenuKey)
+
+    if menuKeyDown and not State.LastMenuKey then
+        State.MenuVisible = not State.MenuVisible
+        updateMenu()
+    end
+
+    State.LastMenuKey = menuKeyDown
+
+    local clickDown = ismouse1pressed()
+
+    if not State.MenuVisible then
+        State.LastClick = clickDown
+        return
+    end
+
+    updateMenu()
+
+    if clickDown and not State.LastClick and now() - State.LastClickTime >= CONFIG.ClickDebounce then
+        State.LastClickTime = now()
+
+        local row = State.HoveredRow
+
+        if row then
+            State.Toggles[row.Key] = not State.Toggles[row.Key]
+            updateMenu()
+
+            notify(row.Label .. ": " .. tostring(State.Toggles[row.Key]), "jjs", 1.25)
+
+            clearEsp()
+            LastEspScan = 0
+        end
+    end
+
+    State.LastClick = clickDown
+end
+
+local function cleanup()
+    State.Running = false
+
+    if MainRenderConnection then
+        pcall(function()
+            MainRenderConnection:Disconnect()
+        end)
+        MainRenderConnection = nil
+    end
+
+    clearEsp()
+    ESP:End()
+
+    for _, obj in pairs(State.Drawings) do
+        pcall(function()
+            obj:Remove()
+        end)
+    end
+
+    State.Drawings = {}
+
+    notify("unloaded", "jjs", 2)
+end
+
+_G.__JJS_MATCHA_CLEANUP = cleanup
+
+createMenu()
+updateMenu()
+
+notify("loaded", "jjs", 3)
+print("jjs loaded")
+
+MainRenderConnection = RunService.RenderStepped:Connect(function(deltaTime)
+    if not State.Running then
+        return
+    end
+
+    pcall(function()
+        handleMenuInput()
+
+        local t = now()
+
+        if t - LastEspScan >= CONFIG.EspScanDelay then
+            LastEspScan = t
+            scanEspTargets()
+        end
+    end)
+end)
