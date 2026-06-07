@@ -1,0 +1,732 @@
+local CONFIG = {
+    MenuKey = 0x2D,
+    ClickDebounce = 0.20,
+    CycleWait = 0.01,
+    EspScanDelay = 0.35,
+    EspUpdateDelay = 0.20,
+    EspMaxDistance = 3000,
+
+    Colors = {
+        MenuBg = Color3.fromRGB(15, 16, 20),
+        MenuHeader = Color3.fromRGB(23, 25, 31),
+        MenuText = Color3.fromRGB(220, 225, 235),
+        Enabled = Color3.fromRGB(95, 235, 150),
+        Disabled = Color3.fromRGB(95, 100, 115),
+
+        Item = Color3.fromRGB(255, 210, 80),
+        Dummy = Color3.fromRGB(120, 210, 255),
+        Domain = Color3.fromRGB(210, 120, 255),
+    }
+}
+
+if _G.__JJS_MATCHA_CLEANUP then
+    _G.__JJS_MATCHA_CLEANUP()
+end
+
+if not typeof then
+    function typeof(v)
+        if type(v) == "table" and v.ClassName then
+            return "Instance"
+        end
+        return type(v)
+    end
+end
+
+loadstring([=[
+EModule = {}
+EModule.__index = EModule
+EModule.WS = game:GetService("Workspace")
+
+EModule.Config = {
+    RenderSettings = {
+        Type = "Regular" -- Regular/RunService
+    },
+    Text = {
+        TextFont = Drawing.Fonts.SystemBold,
+        DefColor = Color3.new(1,1,1),
+        DefText = "SmthShit",
+        ZIndex = -9e9
+    }
+}
+
+EModule.Act = false
+EModule.CActive = {}
+
+function EModule:CreateESP(obj,text,color,type)
+    if not self.Act then 
+        self.Act = true
+        local function Render()
+            for adress, typee in pairs(self.CActive) do
+                if not typee or not typee.Instance or not typee.Instance:IsDescendantOf(self.WS) then
+                    self:DeleteESP("M",adress)
+                    continue
+                end
+                local PosOnScreen = typee.Instance.Position
+                if not PosOnScreen then 
+                    self:DeleteESP("M",adress)
+                    continue
+                end
+                local Vis, St = WorldToScreen(PosOnScreen)
+                if St then
+                    typee.ESP.Visible = true
+                    typee.ESP.Position = Vis
+                else
+                    typee.ESP.Visible = false
+                end
+            end
+        end
+        if self.Config.RenderSettings.Type:lower() == "regular" then
+            task.spawn(function()
+                while self.Act do
+                    Render()
+                    task.wait()
+                end
+            end)
+        elseif self.Config.RenderSettings.Type:lower() == "runservice" then
+            task.spawn(function()
+                self.RS = game:GetService("RunService").RenderStepped:Connect(function()
+                    Render()
+                end)
+            end)
+        end
+    end
+    if self.CActive[obj.Address] then return end
+    local NotText = Drawing.new("Text")
+    NotText.Outline = true
+    NotText.Center = true
+    NotText.Visible = true
+    NotText.Color = color or self.Config.Text.DefColor
+    NotText.Text = text or self.Config.Text.DefText
+    NotText.Font = self.Config.Text.TextFont
+    NotText.ZIndex = self.Config.Text.ZIndex
+    self.CActive[obj.Address] = {
+        Instance = obj,
+        Type = type or "Default",
+        ESP = NotText
+    }
+end
+
+function EModule:UpdateESP(linked,text,color)
+    if not self.CActive[linked.Address] then return end
+    if text then self.CActive[linked.Address].ESP.Text = text end
+    if color then self.CActive[linked.Address].ESP.Color = color end
+end
+
+function EModule:DeleteESP(types, link)
+    if types:lower() == "m" then
+        local Tmp = (typeof(link) == "Instance") and link.Address or link
+        if not Tmp then return end
+        local Temp = self.CActive[Tmp]
+        if not Temp then return end
+        Temp.ESP:Remove()
+        Temp.Instance = nil
+        Temp.Type = nil
+        self.CActive[Tmp] = nil
+        return
+    elseif types:lower() == "t" then
+        for addrniha, Type in pairs(self.CActive) do
+            if Type.Type == link then
+                Type.ESP:Remove()
+                Type.Instance = nil
+                Type.Type = nil
+                self.CActive[addrniha] = nil
+            end
+        end
+        return
+    end
+end
+
+function EModule:CreateRenderFlow()
+    task.wait() -- I added ts to prevent scripts from getting error nil
+end
+
+function EModule:End()
+    self.Act = false
+    if self.RS then self.RS:Disconnect() end
+    for addrniha, Type in pairs(self.CActive) do
+        if Type.ESP then Type.ESP:Remove() end
+        if Type.Instance then Type.Instance = nil end
+        if Type.Type then Type.Type = nil end
+        self.CActive[addrniha] = nil
+    end
+    self.CActive = {}
+    EModule = nil
+    _G.EModule = nil
+end
+
+_G.EModule = EModule
+return EModule
+]=])()
+
+local game = game
+local Workspace = game:GetService("Workspace")
+local Players = game:GetService("Players")
+local LocalPlayer = Players.LocalPlayer
+local ESP = _G.EModule
+
+local State = {
+    Running = true,
+    MenuVisible = true,
+    LastMenuKey = false,
+    LastClick = false,
+    LastClickTime = 0,
+    HoveredRow = nil,
+    Drawings = {},
+
+    Toggles = {
+        ItemsESP = true,
+        DummyESP = true,
+        DomainHealthESP = true,
+    }
+}
+
+local FeatureRows = {
+    { Key = "ItemsESP", Label = "Items ESP", Type = "Items" },
+    { Key = "DummyESP", Label = "Dummy ESP", Type = "Dummies" },
+    { Key = "DomainHealthESP", Label = "Domain Health ESP", Type = "Domains" },
+}
+
+local LastEspScan = 0
+local LastEspUpdate = 0
+local Tracked = {}
+
+local function now()
+    return os.clock()
+end
+
+local function lowerText(value)
+    if value == nil then
+        return ""
+    end
+    return string.lower(tostring(value))
+end
+
+local function containsAny(text, words)
+    text = lowerText(text)
+    for _, word in pairs(words) do
+        if string.find(text, lowerText(word), 1, true) then
+            return true
+        end
+    end
+    return false
+end
+
+local function fullLower(inst)
+    local ok, full = pcall(function()
+        return inst:GetFullName()
+    end)
+
+    if ok and full then
+        return lowerText(full)
+    end
+
+    return lowerText(inst.Name)
+end
+
+local function makeText(text, x, y, color, size)
+    local obj = Drawing.new("Text")
+    obj.Text = text
+    obj.Position = Vector2.new(x, y)
+    obj.Color = color
+    obj.Transparency = 1
+    obj.Outline = true
+    obj.Center = false
+    obj.Size = size or 15
+    obj.Visible = true
+    obj.ZIndex = 50
+    return obj
+end
+
+local function makeSquare(x, y, w, h, color, filled)
+    local obj = Drawing.new("Square")
+    obj.Position = Vector2.new(x, y)
+    obj.Size = Vector2.new(w, h)
+    obj.Color = color
+    obj.Transparency = 1
+    obj.Filled = filled
+    obj.Visible = true
+    obj.ZIndex = 40
+    return obj
+end
+
+local function addDrawing(obj)
+    State.Drawings[#State.Drawings + 1] = obj
+    return obj
+end
+
+local function getCharacter()
+    if LocalPlayer then
+        return LocalPlayer.Character
+    end
+    return nil
+end
+
+local function getRoot(model)
+    if not model then
+        return nil
+    end
+
+    if model.PrimaryPart then
+        return model.PrimaryPart
+    end
+
+    local hrp = model:FindFirstChild("HumanoidRootPart")
+    if hrp then
+        return hrp
+    end
+
+    local torso = model:FindFirstChild("Torso")
+    if torso then
+        return torso
+    end
+
+    local head = model:FindFirstChild("Head")
+    if head then
+        return head
+    end
+
+    return nil
+end
+
+local function getDistance(part)
+    local char = getCharacter()
+    local root = getRoot(char)
+
+    if not root or not part then
+        return 0
+    end
+
+    local dx = root.Position.X - part.Position.X
+    local dy = root.Position.Y - part.Position.Y
+    local dz = root.Position.Z - part.Position.Z
+
+    return math.sqrt((dx * dx) + (dy * dy) + (dz * dz))
+end
+
+local function getHumanoid(model)
+    if not model then
+        return nil
+    end
+    return model:FindFirstChildOfClass("Humanoid")
+end
+
+local function isAliveModel(model)
+    local hum = getHumanoid(model)
+    if hum and hum.Health <= 0 then
+        return false
+    end
+    return true
+end
+
+local function isDummyModel(inst)
+    if not inst or not inst:IsA("Model") then
+        return false
+    end
+
+    local name = lowerText(inst.Name)
+    local full = fullLower(inst)
+
+    if containsAny(full, { "dummy", "dummies", "training", "npc" }) then
+        return getRoot(inst) ~= nil
+    end
+
+    if getHumanoid(inst) and getRoot(inst) then
+        return containsAny(name, { "dummy", "npc", "mob", "enemy", "boss" })
+    end
+
+    return false
+end
+
+local function isItem(inst)
+    if not inst then
+        return false
+    end
+
+    local name = lowerText(inst.Name)
+    local full = fullLower(inst)
+    local className = lowerText(inst.ClassName)
+
+    if string.find(className, "tool", 1, true) then
+        return true
+    end
+
+    return containsAny(full, {
+        "item",
+        "items",
+        "drop",
+        "drops",
+        "spawneditems",
+        "loot",
+        "weapon",
+        "finger",
+        "scroll",
+        "katana",
+        "sword",
+        "cursed",
+        "object"
+    }) or containsAny(name, {
+        "item",
+        "drop",
+        "finger",
+        "scroll",
+        "katana",
+        "sword",
+        "cursed"
+    })
+end
+
+local function isDomainObject(inst)
+    if not inst then
+        return false
+    end
+
+    local name = lowerText(inst.Name)
+    local full = fullLower(inst)
+
+    return containsAny(full, {
+        "domain",
+        "domains",
+        "barrier",
+        "barriers",
+        "domainhealth",
+        "healthbar",
+        "shrine",
+        "void",
+        "expansion"
+    }) or containsAny(name, {
+        "domain",
+        "barrier",
+        "shrine",
+        "void",
+        "expansion"
+    })
+end
+
+local function findHealthText(inst)
+    local health = nil
+
+    pcall(function()
+        local hum = getHumanoid(inst)
+        if hum then
+            health = math.floor(hum.Health) .. "/" .. math.floor(hum.MaxHealth)
+        end
+    end)
+
+    if health then
+        return health
+    end
+
+    pcall(function()
+        local attr = inst:GetAttribute("Health")
+        local maxAttr = inst:GetAttribute("MaxHealth")
+        if attr then
+            if maxAttr then
+                health = tostring(attr) .. "/" .. tostring(maxAttr)
+            else
+                health = tostring(attr)
+            end
+        end
+    end)
+
+    if health then
+        return health
+    end
+
+    pcall(function()
+        local child = inst:FindFirstChild("Health")
+        if child and child.Value ~= nil then
+            health = tostring(child.Value)
+        end
+    end)
+
+    return health or "?"
+end
+
+local function espText(kind, inst, part)
+    local dist = tostring(math.floor(getDistance(part)))
+
+    if kind == "Items" then
+        return "[ITEM] " .. inst.Name .. " [" .. dist .. "m]"
+    end
+
+    if kind == "Dummies" then
+        local hum = getHumanoid(inst)
+        local hp = ""
+        if hum then
+            hp = " HP:" .. tostring(math.floor(hum.Health))
+        end
+        return "[DUMMY] " .. inst.Name .. hp .. " [" .. dist .. "m]"
+    end
+
+    if kind == "Domains" then
+        return "[DOMAIN] " .. inst.Name .. " HP:" .. findHealthText(inst) .. " [" .. dist .. "m]"
+    end
+
+    return inst.Name .. " [" .. dist .. "m]"
+end
+
+local function clearEsp()
+    if ESP then
+        ESP:DeleteESP("t", "Items")
+        ESP:DeleteESP("t", "Dummies")
+        ESP:DeleteESP("t", "Domains")
+    end
+    Tracked = {}
+end
+
+local function addOrUpdateEsp(kind, inst, part, color)
+    if not ESP or not part or not part.Address then
+        return
+    end
+
+    if getDistance(part) > CONFIG.EspMaxDistance then
+        return
+    end
+
+    local text = espText(kind, inst, part)
+
+    Tracked[part.Address] = {
+        Kind = kind,
+        Instance = inst,
+        Part = part,
+        Color = color,
+    }
+
+    if ESP.CActive[part.Address] then
+        ESP:UpdateESP(part, text, color)
+    else
+        ESP:CreateESP(part, text, color, kind)
+    end
+end
+
+local function scanEspTargets()
+    if not ESP then
+        return
+    end
+
+    if not State.Toggles.ItemsESP then
+        ESP:DeleteESP("t", "Items")
+    end
+
+    if not State.Toggles.DummyESP then
+        ESP:DeleteESP("t", "Dummies")
+    end
+
+    if not State.Toggles.DomainHealthESP then
+        ESP:DeleteESP("t", "Domains")
+    end
+
+    if not State.Toggles.ItemsESP and not State.Toggles.DummyESP and not State.Toggles.DomainHealthESP then
+        Tracked = {}
+        return
+    end
+
+    local descendants = game:GetDescendants()
+
+    for _, inst in pairs(descendants) do
+        local part = nil
+
+        if inst:IsA("Model") then
+            part = getRoot(inst)
+        elseif inst:IsA("BasePart") or inst:IsA("MeshPart") then
+            part = inst
+        end
+
+        if part and part.Address and getDistance(part) <= CONFIG.EspMaxDistance then
+            if State.Toggles.ItemsESP and isItem(inst) then
+                addOrUpdateEsp("Items", inst, part, CONFIG.Colors.Item)
+            end
+
+            if State.Toggles.DummyESP and isDummyModel(inst) and isAliveModel(inst) then
+                addOrUpdateEsp("Dummies", inst, part, CONFIG.Colors.Dummy)
+            end
+
+            if State.Toggles.DomainHealthESP and isDomainObject(inst) then
+                addOrUpdateEsp("Domains", inst, part, CONFIG.Colors.Domain)
+            end
+        end
+    end
+end
+
+local function updateTrackedEsp()
+    if not ESP then
+        return
+    end
+
+    for address, info in pairs(Tracked) do
+        if not info or not info.Part or not info.Part:IsDescendantOf(Workspace) then
+            Tracked[address] = nil
+            ESP:DeleteESP("m", address)
+        else
+            local allowed =
+                (info.Kind == "Items" and State.Toggles.ItemsESP) or
+                (info.Kind == "Dummies" and State.Toggles.DummyESP) or
+                (info.Kind == "Domains" and State.Toggles.DomainHealthESP)
+
+            if allowed then
+                if getDistance(info.Part) > CONFIG.EspMaxDistance then
+                    ESP:DeleteESP("m", address)
+                    Tracked[address] = nil
+                elseif ESP.CActive[address] then
+                    ESP:UpdateESP(info.Part, espText(info.Kind, info.Instance, info.Part), info.Color)
+                end
+            end
+        end
+    end
+end
+
+local function createMenu()
+    local x = 24
+    local y = 50
+    local w = 250
+    local headerH = 38
+    local rowH = 30
+    local h = headerH + (#FeatureRows * rowH) + 26
+
+    addDrawing(makeSquare(x + 4, y + 4, w, h, Color3.fromRGB(0, 0, 0), true)).Transparency = 0.35
+    addDrawing(makeSquare(x, y, w, h, CONFIG.Colors.MenuBg, true)).Transparency = 0.96
+    addDrawing(makeSquare(x, y, w, headerH, CONFIG.Colors.MenuHeader, true))
+    addDrawing(makeSquare(x, y + headerH - 2, w, 2, Color3.fromRGB(85, 135, 255), true))
+
+    local title = addDrawing(makeText("jjs", x + 14, y + 9, Color3.fromRGB(245, 247, 255), 18))
+    title.Font = Drawing.Fonts.SystemBold
+
+    local hint = addDrawing(makeText("insert", x + w - 54, y + 12, Color3.fromRGB(135, 145, 165), 12))
+    hint.Font = Drawing.Fonts.System
+
+    for i, row in pairs(FeatureRows) do
+        local rowY = y + headerH + ((i - 1) * rowH) + 5
+
+        local hover = addDrawing(makeSquare(x + 8, rowY - 2, w - 16, rowH - 4, Color3.fromRGB(30, 34, 43), true))
+        hover.Transparency = 0.85
+        hover.Visible = false
+
+        local dot = addDrawing(makeSquare(x + 16, rowY + 8, 8, 8, CONFIG.Colors.Disabled, true))
+        local label = addDrawing(makeText(row.Label, x + 34, rowY + 3, CONFIG.Colors.MenuText, 13))
+        label.Font = Drawing.Fonts.System
+
+        row.Hover = hover
+        row.Box = dot
+        row.Text = label
+        row.X = x + 8
+        row.Y = rowY - 2
+        row.W = w - 16
+        row.H = rowH - 4
+    end
+end
+
+local function updateMenu()
+    local mouse = LocalPlayer:GetMouse()
+    local mx = mouse.X
+    local my = mouse.Y
+
+    State.HoveredRow = nil
+
+    for _, obj in pairs(State.Drawings) do
+        obj.Visible = State.MenuVisible
+    end
+
+    if not State.MenuVisible then
+        return
+    end
+
+    for _, row in pairs(FeatureRows) do
+        local hovered = mx >= row.X and mx <= row.X + row.W and my >= row.Y and my <= row.Y + row.H
+        row.Hover.Visible = hovered
+
+        if hovered then
+            State.HoveredRow = row
+            row.Text.Color = Color3.fromRGB(255, 255, 255)
+        else
+            row.Text.Color = CONFIG.Colors.MenuText
+        end
+
+        if State.Toggles[row.Key] then
+            row.Box.Color = CONFIG.Colors.Enabled
+        else
+            row.Box.Color = CONFIG.Colors.Disabled
+        end
+    end
+end
+
+local function handleMenuInput()
+    local menuKeyDown = iskeypressed(CONFIG.MenuKey)
+
+    if menuKeyDown and not State.LastMenuKey then
+        State.MenuVisible = not State.MenuVisible
+        updateMenu()
+    end
+
+    State.LastMenuKey = menuKeyDown
+
+    local clickDown = ismouse1pressed()
+
+    if not State.MenuVisible then
+        State.LastClick = clickDown
+        return
+    end
+
+    updateMenu()
+
+    if clickDown and not State.LastClick and now() - State.LastClickTime >= CONFIG.ClickDebounce then
+        State.LastClickTime = now()
+
+        local row = State.HoveredRow
+        if row then
+            State.Toggles[row.Key] = not State.Toggles[row.Key]
+            notify(row.Label .. ": " .. tostring(State.Toggles[row.Key]), "jjs", 1.25)
+            clearEsp()
+            LastEspScan = 0
+        end
+    end
+
+    State.LastClick = clickDown
+end
+
+local function cleanup()
+    State.Running = false
+    clearEsp()
+
+    if ESP and ESP.End then
+        ESP:End()
+    end
+
+    for _, obj in pairs(State.Drawings) do
+        pcall(function()
+            obj:Remove()
+        end)
+    end
+
+    State.Drawings = {}
+    notify("unloaded", "jjs", 2)
+end
+
+_G.__JJS_MATCHA_CLEANUP = cleanup
+
+createMenu()
+updateMenu()
+
+notify("loaded", "jjs", 3)
+print("jjs loaded")
+
+task.spawn(function()
+    while State.Running do
+        pcall(function()
+            handleMenuInput()
+
+            local t = now()
+
+            if t - LastEspScan >= CONFIG.EspScanDelay then
+                LastEspScan = t
+                scanEspTargets()
+            end
+
+            if t - LastEspUpdate >= CONFIG.EspUpdateDelay then
+                LastEspUpdate = t
+                updateTrackedEsp()
+            end
+        end)
+
+        task.wait(CONFIG.CycleWait)
+    end
+end)
